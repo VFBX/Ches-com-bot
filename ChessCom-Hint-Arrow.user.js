@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Chess.com Hint Arrow VIP PRO MAX — XAIZ (Mũi tên hướng dẫn, bạn tự đi)
 // @namespace    xaiz-chess-hint
-// @version      5.0.0
+// @version      5.1.0
 // @description  Menu VIP PRO MAX: mũi tên nước tốt nhất (engine Lichess Book + Stockfish) vẽ ngay trên bàn Chess.com, đổi màu mũi tên, lịch sử gợi ý, bạn tự đi theo. KHÔNG tự bấm quân.
 // @author       XAIZ
 // @match        https://www.chess.com/*
@@ -340,7 +340,7 @@
     panel.id = 'xaiz-chess-bot-panel';
     panel.innerHTML = `
       <div id="xaiz-cb-head">
-        <span>♟️ XAIZ VIP <span class="ver">PRO MAX v5.0</span></span>
+        <span>♟️ XAIZ VIP <span class="ver">PRO MAX v5.1</span></span>
         <span class="head-btns"><span id="xaiz-cb-min">—</span><span id="xaiz-cb-close">✕</span></span>
       </div>
       <div id="xaiz-cb-evalbar"><div id="xaiz-cb-evalfill"></div><span id="xaiz-cb-evaltxt">50%</span></div>
@@ -568,9 +568,9 @@
     els.fen.textContent = fen;
     const mc = panel.querySelector('#xaiz-cb-mycolor');
     if (mc) mc.textContent = myColor === 'w' ? 'Trắng ♔' : 'Đen ♚';
+    const active = fen.split(' ')[1];
     const tn = panel.querySelector('#xaiz-cb-turn');
     if (tn) tn.textContent = (active === 'w' ? 'Trắng ♔' : 'Đen ♚') + ' • đã đi ' + plyCount + ' nước';
-    const active = fen.split(' ')[1];
     const isMyTurn = active === myColor;
     if (fen === lastFen && !manual) return;
     lastFen = fen;
@@ -618,7 +618,7 @@
     document.addEventListener('keydown', (e) => {
       if (e.altKey && (e.key === 'b' || e.key === 'B')) panel.style.display = panel.style.display === 'none' ? '' : 'none';
     });
-    log('XAIZ Chess Hint Arrow VIP PRO MAX v5.0.0 đã tải. Mode:', mode, 'Arrow:', arrowVisible, 'Color:', arrowColor);
+    log('XAIZ Chess Hint Arrow VIP PRO MAX v5.1.0 đã tải. Mode:', mode, 'Arrow:', arrowVisible, 'Color:', arrowColor);
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
   else init();

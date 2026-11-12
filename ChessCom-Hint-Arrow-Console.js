@@ -1,5 +1,5 @@
-/* CHESS.COM HINT ARROW VIP PRO MAX v5.0 - BẢN CHẠY BẰNG CONSOLE (không cần Tampermonkey)
-   Menu VIP mới: mũi tên nước tốt nhất vẽ lên bàn, đổi màu mũi tên, lịch sử gợi ý.
+/* CHESS.COM HINT ARROW VIP PRO MAX v5.1 - BẢN CHẠY BẰNG CONSOLE (không cần Tampermonkey)
+   Sửa lỗi v5.0: dòng Lượt đi dùng biến active trước khi khai báo nên quét bị crash.
    Cách dùng: mở chess.com bằng Kiwi, vào ván, mở Developers > JavaScript Console,
    dán TOÀN BỘ file này vào ô nhập, bấm nút chạy (▶). Mỗi lần tải lại trang thì dán lại 1 lần. */
 
@@ -325,7 +325,7 @@
     panel.id = 'xaiz-chess-bot-panel';
     panel.innerHTML = `
       <div id="xaiz-cb-head">
-        <span>♟️ XAIZ VIP <span class="ver">PRO MAX v5.0</span></span>
+        <span>♟️ XAIZ VIP <span class="ver">PRO MAX v5.1</span></span>
         <span class="head-btns"><span id="xaiz-cb-min">—</span><span id="xaiz-cb-close">✕</span></span>
       </div>
       <div id="xaiz-cb-evalbar"><div id="xaiz-cb-evalfill"></div><span id="xaiz-cb-evaltxt">50%</span></div>
@@ -553,9 +553,9 @@
     els.fen.textContent = fen;
     const mc = panel.querySelector('#xaiz-cb-mycolor');
     if (mc) mc.textContent = myColor === 'w' ? 'Trắng ♔' : 'Đen ♚';
+    const active = fen.split(' ')[1];
     const tn = panel.querySelector('#xaiz-cb-turn');
     if (tn) tn.textContent = (active === 'w' ? 'Trắng ♔' : 'Đen ♚') + ' • đã đi ' + plyCount + ' nước';
-    const active = fen.split(' ')[1];
     const isMyTurn = active === myColor;
     if (fen === lastFen && !manual) return;
     lastFen = fen;
@@ -603,7 +603,7 @@
     document.addEventListener('keydown', (e) => {
       if (e.altKey && (e.key === 'b' || e.key === 'B')) panel.style.display = panel.style.display === 'none' ? '' : 'none';
     });
-    log('XAIZ Chess Hint Arrow VIP PRO MAX v5.0.0 đã tải. Mode:', mode, 'Arrow:', arrowVisible, 'Color:', arrowColor);
+    log('XAIZ Chess Hint Arrow VIP PRO MAX v5.1.0 đã tải. Mode:', mode, 'Arrow:', arrowVisible, 'Color:', arrowColor);
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
   else init();
