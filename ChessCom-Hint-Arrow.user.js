@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         Chess.com Hint Arrow VIP PRO MAX — XAIZ (Mũi tên hướng dẫn, bạn tự đi)
+// @name         Chess.com Hint Arrow VIP NHẤT — XAIZ (Mũi tên + Sách mở cờ lớn + Cache + Anti-Ban)
 // @namespace    xaiz-chess-hint
-// @version      5.1.0
-// @description  Menu VIP PRO MAX: mũi tên nước tốt nhất (engine Lichess Book + Stockfish) vẽ ngay trên bàn Chess.com, đổi màu mũi tên, lịch sử gợi ý, bạn tự đi theo. KHÔNG tự bấm quân.
+// @version      6.0.0
+// @description  Bản VIP nhất: sách mở cờ 60 khai cuộc, cache thế cờ (phân tích lại tức thì), chỉ chạy ở ván Bot + giãn nhịp gọi API (chống ban), watchdog tự hồi phục. Chỉ vẽ mũi tên, bạn tự đi. KHÔNG tự bấm quân.
 // @author       XAIZ
 // @match        https://www.chess.com/*
 // @grant        GM_getValue
@@ -11,6 +11,7 @@
 // @connect      lichess.org
 // @connect      stockfish.online
 // ==/UserScript==
+
 
 
 /*
@@ -38,12 +39,15 @@
   // ================= CẤU HÌNH =================
   const CFG = {
     modes: {
+      TURBO: { depth: 8,  delayMin: 300,  delayMax: 600,  label: 'TURBO' },
       LEGIT: { depth: 10, delayMin: 1800, delayMax: 3200, label: 'LEGIT' },
       VIP:   { depth: 13, delayMin: 800,  delayMax: 1500, label: 'VIP' },
       RAGE:  { depth: 15, delayMin: 300,  delayMax: 600,  label: 'RAGE' },
     },
-    modeOrder: ['LEGIT', 'VIP', 'RAGE'],
-    scanMs: 800,
+    modeOrder: ['TURBO', 'LEGIT', 'VIP', 'RAGE'],
+    scanMs: 700,
+    minApiGapMs: 1200, // giãn nhịp gọi API tối thiểu: chống spam, chống ban
+    cacheMax: 200,
     apiTimeoutMs: 12000,
   };
   let mode = GM_getValue('xaiz_mode', 'VIP');
@@ -51,6 +55,9 @@
   let arrowColor = GM_getValue('xaiz_arrowcolor', '#22c55e');
   let showTop3Arrows = GM_getValue('xaiz_top3arrows', true);
   let hintHistory = [];
+  let botOnly = GM_getValue('xaiz_botonly', true); // chỉ chạy ở ván Bot (chống ban)
+  const fenCache = new Map(); // thế cờ đã phân tích: gặp lại lấy ngay, không gọi API
+  let lastAnalyseAt = 0;
   let flipped = false;
   let myColor = 'w';
   // SỬA LỖI v2: nút ĐỔI CHIỀU BÀN ở v2 bị lần quét sau ghi đè (readPieces tự
@@ -72,7 +79,7 @@
   const FILES = 'abcdefgh';
   const PIECE_LETTER = { p: 'p', n: 'n', b: 'b', r: 'r', q: 'q', k: 'k' };
 
-  // ================= SÁCH MỞ CỜ (24 khai cuộc, mã ECO) =================
+  // ================= SÁCH MỞ CỜ (60 khai cuộc, mã ECO) =================
   // Mỗi khai cuộc: tên, mã ECO, chuỗi nước đi SAN mở đầu.
   const OPENINGS = [
     { eco: 'C50', name: 'Italian Game', moves: ['e4', 'e5', 'Nf3', 'Nc6', 'Bc4'] },
@@ -98,6 +105,43 @@
     { eco: 'C20', name: "King's Pawn Game", moves: ['e4', 'e5'] },
     { eco: 'B01', name: 'Scandinavian Defense', moves: ['e4', 'd5'] },
     { eco: 'C41', name: 'Philidor Defense', moves: ['e4', 'e5', 'Nf3', 'd6'] },
+
+    { eco: 'B70', name: 'Sicilian Dragon', moves: ['e4', 'c5', 'Nf3', 'd6', 'd4', 'cxd4', 'Nxd4', 'Nf6', 'Nc3', 'g6'] },
+    { eco: 'B23', name: 'Sicilian Closed', moves: ['e4', 'c5', 'Nc3'] },
+    { eco: 'B22', name: 'Sicilian Alapin', moves: ['e4', 'c5', 'c3'] },
+    { eco: 'C02', name: 'French Advance', moves: ['e4', 'e6', 'd4', 'd5', 'e5'] },
+    { eco: 'C18', name: 'French Winawer', moves: ['e4', 'e6', 'd4', 'd5', 'Nc3', 'Bb4'] },
+    { eco: 'C03', name: 'French Tarrasch', moves: ['e4', 'e6', 'd4', 'd5', 'Nd2'] },
+    { eco: 'B15', name: 'Caro-Kann Classical', moves: ['e4', 'c6', 'd4', 'd5', 'Nc3', 'dxe4', 'Nxe4', 'Bf5'] },
+    { eco: 'C67', name: 'Ruy Lopez Berlin', moves: ['e4', 'e5', 'Nf3', 'Nc6', 'Bb5', 'Nf6'] },
+    { eco: 'C84', name: 'Ruy Lopez Closed', moves: ['e4', 'e5', 'Nf3', 'Nc6', 'Bb5', 'a6', 'Ba4', 'Nf6', 'O-O', 'Be7'] },
+    { eco: 'C69', name: 'Ruy Lopez Exchange', moves: ['e4', 'e5', 'Nf3', 'Nc6', 'Bb5', 'a6', 'Bxc6'] },
+    { eco: 'C55', name: 'Italian Giuoco Piano', moves: ['e4', 'e5', 'Nf3', 'Nc6', 'Bc4', 'Bc5'] },
+    { eco: 'C51', name: "Evans Gambit", moves: ['e4', 'e5', 'Nf3', 'Nc6', 'Bc4', 'Bc5', 'b4'] },
+    { eco: 'C47', name: 'Four Knights', moves: ['e4', 'e5', 'Nf3', 'Nc6', 'Nc3', 'Nf6'] },
+    { eco: 'C29', name: 'Vienna Game', moves: ['e4', 'e5', 'Nc3'] },
+    { eco: 'C45', name: 'Scotch Game', moves: ['e4', 'e5', 'Nf3', 'Nc6', 'd4'] },
+    { eco: 'C33', name: "King's Gambit", moves: ['e4', 'e5', 'f4'] },
+    { eco: 'B07', name: 'Pirc Defense', moves: ['e4', 'd6', 'd4', 'Nf6', 'Nc3', 'g6'] },
+    { eco: 'B06', name: 'Modern Defense', moves: ['e4', 'g6'] },
+    { eco: 'B02', name: "Alekhine Defense", moves: ['e4', 'Nf6'] },
+    { eco: 'A80', name: 'Dutch Defense', moves: ['d4', 'f5'] },
+    { eco: 'D80', name: 'Grunfeld Defense', moves: ['d4', 'Nf6', 'c4', 'g6', 'Nc3', 'd5'] },
+    { eco: 'E32', name: 'Nimzo-Indian', moves: ['d4', 'Nf6', 'c4', 'e6', 'Nc3', 'Bb4'] },
+    { eco: 'E12', name: "Queen's Indian", moves: ['d4', 'Nf6', 'c4', 'e6', 'Nf3', 'b6'] },
+    { eco: 'E04', name: 'Catalan Opening', moves: ['d4', 'Nf6', 'c4', 'e6', 'g3'] },
+    { eco: 'A09', name: 'Reti Opening', moves: ['Nf3', 'd5', 'c4'] },
+    { eco: 'E67', name: "King's Indian Fianchetto", moves: ['d4', 'Nf6', 'c4', 'g6', 'Nf3', 'Bg7', 'g3'] },
+    { eco: 'D43', name: 'Slav Semi-Slav', moves: ['d4', 'd5', 'c4', 'c6', 'Nf3', 'Nf6', 'Nc3', 'e6'] },
+    { eco: 'D37', name: 'QGD Orthodox', moves: ['d4', 'd5', 'c4', 'e6', 'Nc3', 'Nf6'] },
+    { eco: 'A48', name: 'London vs KID', moves: ['d4', 'Nf6', 'Nf3', 'g6', 'Bf4'] },
+    { eco: 'A45', name: 'Trompowsky Attack', moves: ['d4', 'Nf6', 'Bg5'] },
+    { eco: 'D05', name: 'Colle System', moves: ['d4', 'd5', 'Nf3', 'Nf6', 'e3'] },
+    { eco: 'C26', name: 'Vienna Falkbeer', moves: ['e4', 'e5', 'Nc3', 'Nf6', 'f4'] },
+    { eco: 'B40', name: 'Sicilian Kan', moves: ['e4', 'c5', 'Nf3', 'e6', 'd4', 'cxd4', 'Nxd4', 'a6'] },
+    { eco: 'B30', name: 'Sicilian Rossolimo', moves: ['e4', 'c5', 'Nf3', 'Nc6', 'Bb5'] },
+    { eco: 'C65', name: 'Ruy Lopez Berlin Def', moves: ['e4', 'e5', 'Nf3', 'Nc6', 'Bb5', 'Nf6', 'O-O', 'Nxe4'] },
+    { eco: 'A00', name: 'Polish Opening', moves: ['b4'] },
     { eco: 'C44', name: 'Ponziani Opening', moves: ['e4', 'e5', 'Nf3', 'Nc6', 'c3'] },
   ];
 
@@ -257,8 +301,22 @@
     throw new Error('lichess cloud-eval không có nước này');
   }
   async function analyse(fen) {
-    try { return await askLichess(fen); }
-    catch (e) { log('Lichess book không có, dùng Stockfish:', e.message); return await askStockfish(fen, CFG.modes[mode].depth); }
+    // Gặp lại thế cờ đã tính: lấy ngay từ cache, không gọi API -> nhanh tức thì.
+    if (fenCache.has(fen)) return fenCache.get(fen);
+    // Giãn nhịp gọi API tối thiểu (chống spam / chống ban).
+    const gap = Date.now() - lastAnalyseAt;
+    if (gap < CFG.minApiGapMs) await sleep(CFG.minApiGapMs - gap);
+    lastAnalyseAt = Date.now();
+    let res;
+    try { res = await askLichess(fen); }
+    catch (e) {
+      log('Lichess book không có, dùng Stockfish:', e.message);
+      try { res = await askStockfish(fen, CFG.modes[mode].depth); }
+      catch (e2) { await sleep(800); res = await askStockfish(fen, CFG.modes[mode].depth); }
+    }
+    if (fenCache.size >= CFG.cacheMax) fenCache.delete(fenCache.keys().next().value);
+    fenCache.set(fen, res);
+    return res;
   }
 
   // ================= ĐI QUÂN =================
@@ -340,7 +398,7 @@
     panel.id = 'xaiz-chess-bot-panel';
     panel.innerHTML = `
       <div id="xaiz-cb-head">
-        <span>♟️ XAIZ VIP <span class="ver">PRO MAX v5.1</span></span>
+        <span>♟️ XAIZ VIP <span class="ver">NHẤT v6.0</span></span>
         <span class="head-btns"><span id="xaiz-cb-min">—</span><span id="xaiz-cb-close">✕</span></span>
       </div>
       <div id="xaiz-cb-evalbar"><div id="xaiz-cb-evalfill"></div><span id="xaiz-cb-evaltxt">50%</span></div>
@@ -362,6 +420,7 @@
           <button id="xaiz-cb-arrow" class="bigbtn">👁 MŨI TÊN: BẬT</button>
           <div class="hist"><div class="hist-title">📜 Gợi ý vừa rồi</div><div id="xaiz-cb-hist">—</div></div>
           <div class="row small"><span>Đã hướng dẫn:</span><b id="xaiz-cb-count">0 nước</b></div>
+          <div class="row small"><span>Cache thế cờ:</span><b id="xaiz-cb-cache">0 đã lưu</b></div>
         </div>
         <div class="tabpage" data-page="top3" style="display:none">
           <div class="note">Bấm 1 nước để chỉ vẽ mũi tên nước đó lên bàn, rồi bạn tự đi theo.</div>
@@ -370,7 +429,7 @@
         <div class="tabpage" data-page="open" style="display:none">
           <div class="row"><span>Khai cuộc:</span><b id="xaiz-cb-opening">—</b></div>
           <div class="row small"><span>Nước mở đầu:</span><b id="xaiz-cb-openmoves">—</b></div>
-          <div class="note">Sách mở cờ: 24 khai cuộc nổi tiếng (Italian, Sicilian, Ruy Lopez, London, Queen's Gambit…). Hết sách thì Lichess Book + Stockfish tính tiếp.</div>
+          <div class="note">Sách mở cờ: 60 khai cuộc nổi tiếng (Italian, Sicilian, Ruy Lopez, London, Queen's Gambit, Grünfeld, Nimzo…). Hết sách thì Lichess Cloud Eval (hàng triệu thế cờ đã phân tích sẵn) + Stockfish tính tiếp — nhanh hơn nhét hàng nghìn thế cờ cứng vào file.</div>
         </div>
         <div class="tabpage" data-page="set" style="display:none">
           <button id="xaiz-cb-mode" class="bigbtn">MODE: VIP</button>
@@ -397,6 +456,9 @@
           <div class="btns">
             <button id="xaiz-cb-flip">↕ ĐỔI CHIỀU BÀN</button>
             <button id="xaiz-cb-turnflip">🔄 ĐỔI LƯỢT</button>
+          </div>
+          <div class="btns">
+            <button id="xaiz-cb-botonly">🛡️ CHỈ VÁN BOT: BẬT</button>
           </div>
           <div class="btns">
             <button id="xaiz-cb-hide">👁 ẨN MENU</button>
@@ -472,6 +534,9 @@
     panel.querySelectorAll('.colorbtns button').forEach((b) => {
       b.onclick = () => { arrowColor = b.dataset.color; GM_setValue('xaiz_arrowcolor', arrowColor); drawArrows(lastTop3.map(t => t.move)); setStatus('Đã đổi màu mũi tên — đi theo mũi tên mới'); };
     });
+    const updBotOnly = () => { const b = q('#xaiz-cb-botonly'); if (b) b.textContent = botOnly ? '🛡️ CHỈ VÁN BOT: BẬT' : '🛡️ CHỈ VÁN BOT: TẮT'; };
+    updBotOnly();
+    q('#xaiz-cb-botonly').onclick = () => { botOnly = !botOnly; GM_setValue('xaiz_botonly', botOnly); updBotOnly(); lastFen = ''; setStatus(botOnly ? 'Chỉ chạy ở ván Bot (chống ban) — đang quét lại…' : 'Đã tắt giới hạn ván Bot — nhớ chỉ dùng với Bot'); scan(true); };
     els.mode.textContent = 'MODE: ' + mode;
     els.mode.onclick = () => {
       const i = CFG.modeOrder.indexOf(mode);
@@ -555,6 +620,9 @@
   }
   // ================= VÒNG QUÉT CHÍNH =================
   async function scan(manual) {
+    if (botOnly && !location.pathname.includes('/play/computer')) {
+      drawArrows([]); setStatus('Đã tạm dừng — chỉ chạy ở ván Bot (chống ban). Vào Chơi với Bot để dùng.'); return;
+    }
     const read = readPieces();
     if (!read) { setStatus('Chưa thấy bàn cờ — vào ván rồi bấm QUÉT BÀN'); return; }
     const { pieces } = read;
@@ -597,6 +665,8 @@
       els.eval.textContent = res.mate ? ('Chiếu hết trong ' + Math.abs(res.mate))
         : (res.cp === null ? '—' : ((res.cp > 0 ? '+' : '') + (res.cp / 100).toFixed(2) + '  •  Trắng ' + pctW + '%'));
       drawArrows(lastTop3.map(t => t.move));
+      const cc = panel.querySelector('#xaiz-cb-cache');
+      if (cc) cc.textContent = fenCache.size + ' đã lưu';
       hintMoves++; updateStats();
       renderTop3();
       setStatus('Mũi tên xanh = nước tốt nhất: ' + res.best + ' (' + res.source + ') — bạn tự đi theo mũi tên');
@@ -613,12 +683,16 @@
     const oldSvg = document.getElementById('xaiz-arrow-svg'); if (oldSvg) oldSvg.remove();
     buildPanel();
     renderTop3();
-    setStatus('XAIZ VIP PRO MAX v5 đã tải — vào ván rồi bấm QUÉT BÀN, đi theo mũi tên');
+    setStatus('XAIZ VIP NHẤT v6 đã tải — vào ván Bot rồi bấm QUÉT BÀN, đi theo mũi tên');
     window.__xaizBotInterval = setInterval(() => { scan(false).catch(e => log('scan lỗi', e)); }, CFG.scanMs);
+    if (window.__xaizWatchdog) clearInterval(window.__xaizWatchdog);
+    window.__xaizWatchdog = setInterval(() => {
+      if (!document.getElementById('xaiz-chess-bot-panel')) { buildPanel(); renderTop3(); setStatus('Panel đã tự hồi phục — đang quét lại…'); lastFen = ''; }
+    }, 5000);
     document.addEventListener('keydown', (e) => {
       if (e.altKey && (e.key === 'b' || e.key === 'B')) panel.style.display = panel.style.display === 'none' ? '' : 'none';
     });
-    log('XAIZ Chess Hint Arrow VIP PRO MAX v5.1.0 đã tải. Mode:', mode, 'Arrow:', arrowVisible, 'Color:', arrowColor);
+    log('XAIZ Chess Hint Arrow VIP NHẤT v6.0.0 đã tải. Mode:', mode, 'Arrow:', arrowVisible, 'Color:', arrowColor);
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
   else init();
