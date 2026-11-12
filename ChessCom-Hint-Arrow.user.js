@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         Chess.com Hint Arrow — XAIZ (Chỉ vẽ mũi tên, bạn tự đi)
+// @name         Chess.com Hint Arrow VIP PRO MAX — XAIZ (Mũi tên hướng dẫn, bạn tự đi)
 // @namespace    xaiz-chess-hint
-// @version      4.0.0
-// @description  Hiện mũi tên nước tốt nhất (engine Lichess Book + Stockfish) ngay trên bàn Chess.com để bạn tự đi theo. KHÔNG tự bấm quân, không tự di chuyển.
+// @version      5.0.0
+// @description  Menu VIP PRO MAX: mũi tên nước tốt nhất (engine Lichess Book + Stockfish) vẽ ngay trên bàn Chess.com, đổi màu mũi tên, lịch sử gợi ý, bạn tự đi theo. KHÔNG tự bấm quân.
 // @author       XAIZ
 // @match        https://www.chess.com/*
 // @grant        GM_getValue
@@ -11,6 +11,7 @@
 // @connect      lichess.org
 // @connect      stockfish.online
 // ==/UserScript==
+
 
 /*
   CHESS.COM BOT AI v3.2.0 VIP — XAIZ TOOL
@@ -47,6 +48,9 @@
   };
   let mode = GM_getValue('xaiz_mode', 'VIP');
   let arrowVisible = GM_getValue('xaiz_arrow', true);
+  let arrowColor = GM_getValue('xaiz_arrowcolor', '#22c55e');
+  let showTop3Arrows = GM_getValue('xaiz_top3arrows', true);
+  let hintHistory = [];
   let flipped = false;
   let myColor = 'w';
   // SỬA LỖI v2: nút ĐỔI CHIỀU BÀN ở v2 bị lần quét sau ghi đè (readPieces tự
@@ -267,7 +271,16 @@
     if (!flipped) return { x: file + 0.5, y: 8 - rank + 0.5 };
     return { x: 7 - file + 0.5, y: rank - 1 + 0.5 };
   }
-  // Vẽ mũi tên lên bàn: nước tốt nhất = xanh lá đậm, nước 2 = vàng, nước 3 = cam.
+  const PIECE_EMOJI = { p: '♟', n: '♞', b: '♝', r: '♜', q: '♛', k: '♚' };
+  const PIECE_NAME = { p: 'Tốt', n: 'Mã', b: 'Tượng', r: 'Xe', q: 'Hậu', k: 'Vua' };
+  function pieceLabel(uci, pieces) {
+    if (!uci || uci.length < 4) return '';
+    const pc = pieces ? pieces[uci.slice(0, 2)] : null;
+    const em = pc ? (PIECE_EMOJI[pc.type] || '') : '';
+    const nm = pc ? (PIECE_NAME[pc.type] || '') : '';
+    return em + ' ' + nm + ' ' + uci.slice(0, 2) + ' → ' + uci.slice(2, 4) + (uci.length > 4 ? ' = Hậu' : '');
+  }
+  // Vẽ mũi tên lên bàn: nước tốt nhất = màu đã chọn, nước 2 = vàng, nước 3 = cam.
   // Không bấm quân, không di chuyển quân — chỉ vẽ để bạn tự đi theo.
   function drawArrows(moves) {
     const board = getBoardEl();
@@ -279,7 +292,7 @@
     svg.id = 'xaiz-arrow-svg';
     svg.setAttribute('viewBox', '0 0 8 8');
     svg.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:60';
-    const colors = ['#22c55e', '#eab308', '#f97316'];
+    const colors = [arrowColor, '#eab308', '#f97316'];
     const widths = [0.24, 0.17, 0.14];
     const defs = document.createElementNS('http://www.w3.org/2000/svg', 'defs');
     colors.forEach((c, i) => {
@@ -293,7 +306,7 @@
       m.appendChild(p); defs.appendChild(m);
     });
     svg.appendChild(defs);
-    moves.slice(0, 3).forEach((uci, i) => {
+    (showTop3Arrows ? moves.slice(0, 3) : moves.slice(0, 1)).forEach((uci, i) => {
       if (!uci || uci.length < 4) return;
       const a = squareUnit(uci.slice(0, 2)), b = squareUnit(uci.slice(2, 4));
       const dx = b.x - a.x, dy = b.y - a.y, len = Math.hypot(dx, dy) || 1;
@@ -303,7 +316,7 @@
           const r = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
           r.setAttribute('x', pt.x - 0.5); r.setAttribute('y', pt.y - 0.5);
           r.setAttribute('width', '1'); r.setAttribute('height', '1');
-          r.setAttribute('fill', '#22c55e'); r.setAttribute('opacity', '0.35');
+          r.setAttribute('fill', arrowColor); r.setAttribute('opacity', '0.35');
           svg.appendChild(r);
         });
       }
@@ -327,7 +340,7 @@
     panel.id = 'xaiz-chess-bot-panel';
     panel.innerHTML = `
       <div id="xaiz-cb-head">
-        <span>♟️ XAIZ HƯỚNG DẪN <span class="ver">v4.0 ARROW</span></span>
+        <span>♟️ XAIZ VIP <span class="ver">PRO MAX v5.0</span></span>
         <span class="head-btns"><span id="xaiz-cb-min">—</span><span id="xaiz-cb-close">✕</span></span>
       </div>
       <div id="xaiz-cb-evalbar"><div id="xaiz-cb-evalfill"></div><span id="xaiz-cb-evaltxt">50%</span></div>
@@ -342,11 +355,12 @@
           <div class="row"><span>Bạn cầm:</span><b id="xaiz-cb-mycolor">Trắng ♔</b></div>
           <div class="row"><span>Lượt đi:</span><b id="xaiz-cb-turn">—</b></div>
           <div class="row"><span>Trạng thái:</span><b id="xaiz-cb-status">Đang quét bàn…</b></div>
-          <div class="bigmove"><span>Nước tốt nhất</span><b id="xaiz-cb-best">—</b></div>
+          <div class="bigmove"><span class="bm-label">✨ NƯỚC TỐT NHẤT</span><b id="xaiz-cb-best">—</b><small id="xaiz-cb-bestlabel">Đi theo mũi tên trên bàn</small></div>
           <div class="row"><span>Đánh giá:</span><b id="xaiz-cb-eval">—</b></div>
           <div class="row"><span>Nguồn:</span><b id="xaiz-cb-src">—</b></div>
           <div class="row small"><span>FEN:</span><code id="xaiz-cb-fen">—</code></div>
           <button id="xaiz-cb-arrow" class="bigbtn">👁 MŨI TÊN: BẬT</button>
+          <div class="hist"><div class="hist-title">📜 Gợi ý vừa rồi</div><div id="xaiz-cb-hist">—</div></div>
           <div class="row small"><span>Đã hướng dẫn:</span><b id="xaiz-cb-count">0 nước</b></div>
         </div>
         <div class="tabpage" data-page="top3" style="display:none">
@@ -360,6 +374,16 @@
         </div>
         <div class="tabpage" data-page="set" style="display:none">
           <button id="xaiz-cb-mode" class="bigbtn">MODE: VIP</button>
+          <div class="row small"><span>Màu mũi tên tốt nhất:</span></div>
+          <div class="btns colorbtns">
+            <button data-color="#22c55e" style="background:#22c55e">🟢 XANH</button>
+            <button data-color="#eab308" style="background:#eab308">🟡 VÀNG</button>
+            <button data-color="#a855f7" style="background:#a855f7">🟣 TÍM</button>
+            <button data-color="#06b6d4" style="background:#06b6d4">🔵 XANH DƯƠNG</button>
+          </div>
+          <div class="btns">
+            <button id="xaiz-cb-top3toggle">🏆 VẼ CẢ TOP 3: BẬT</button>
+          </div>
           <div class="row small"><span>Màu cờ của bạn (bấm để chọn, tool sẽ nhớ):</span></div>
           <div class="btns">
             <button id="xaiz-cb-white">♔ TÔI CẦM TRẮNG</button>
@@ -382,34 +406,38 @@
       </div>`;
     const st = document.createElement('style');
     st.textContent = `
-      #xaiz-chess-bot-panel{position:fixed;top:10px;right:10px;z-index:999999;width:min(300px,86vw);
-        background:linear-gradient(160deg,#1f2937,#0f172a);color:#fff;border:2px solid #f59e0b;border-radius:16px;
-        font-family:sans-serif;font-size:14px;box-shadow:0 8px 30px rgba(0,0,0,.6);overflow:hidden}
-      #xaiz-cb-head{background:linear-gradient(90deg,#f59e0b,#f97316);color:#111827;font-weight:900;
-        padding:10px 12px;cursor:move;display:flex;justify-content:space-between;align-items:center;font-size:15px}
-      #xaiz-cb-head .ver{font-size:11px;background:#111827;color:#fbbf24;border-radius:8px;padding:2px 6px}
+      #xaiz-chess-bot-panel{position:fixed;top:10px;right:10px;z-index:999999;width:min(310px,88vw);
+        background:linear-gradient(165deg,#2e1065 0%,#0f172a 45%,#111827 100%);color:#fff;border:2px solid #f59e0b;border-radius:20px;
+        font-family:sans-serif;font-size:14px;box-shadow:0 0 0 2px rgba(245,158,11,.25),0 12px 40px rgba(0,0,0,.7);overflow:hidden}
+      #xaiz-cb-head{background:linear-gradient(90deg,#f59e0b,#f97316,#eab308);color:#111827;font-weight:900;
+        padding:12px 14px;cursor:move;display:flex;justify-content:space-between;align-items:center;font-size:16px;letter-spacing:.5px}
+      #xaiz-cb-head .ver{font-size:10px;background:#111827;color:#fbbf24;border-radius:999px;padding:3px 8px;letter-spacing:1px}
       #xaiz-cb-head .head-btns span{padding:2px 8px;cursor:pointer;font-size:16px}
-      #xaiz-cb-evalbar{position:relative;height:18px;background:#111827}
-      #xaiz-cb-evalfill{height:100%;width:50%;background:linear-gradient(90deg,#fff,#e5e7eb);transition:width .4s}
-      #xaiz-cb-evaltxt{position:absolute;inset:0;text-align:center;font-size:11px;font-weight:800;color:#f59e0b;line-height:18px;text-shadow:0 0 3px #000}
-      #xaiz-cb-tabs{display:flex;background:#111827}
-      #xaiz-cb-tabs button{flex:1;padding:10px 2px;border:0;background:transparent;color:#9ca3af;font-weight:800;font-size:12px;cursor:pointer;border-bottom:3px solid transparent}
-      #xaiz-cb-tabs button.on{color:#fbbf24;border-bottom-color:#f59e0b}
+      #xaiz-cb-evalbar{position:relative;height:20px;background:#111827}
+      #xaiz-cb-evalfill{height:100%;width:50%;background:linear-gradient(90deg,#fef3c7,#fbbf24,#f59e0b);transition:width .4s}
+      #xaiz-cb-evaltxt{position:absolute;inset:0;text-align:center;font-size:11px;font-weight:800;color:#111827;line-height:20px}
+      #xaiz-cb-tabs{display:flex;background:rgba(255,255,255,.06);padding:6px;gap:6px}
+      #xaiz-cb-tabs button{flex:1;padding:9px 2px;border:0;background:rgba(255,255,255,.07);color:#cbd5e1;font-weight:800;font-size:12px;cursor:pointer;border-radius:999px}
+      #xaiz-cb-tabs button.on{color:#111827;background:linear-gradient(90deg,#fbbf24,#f59e0b)}
       #xaiz-cb-body{padding:12px}
       #xaiz-cb-body .row{margin:5px 0;display:flex;gap:6px}
       #xaiz-cb-body .row.small{font-size:11px;word-break:break-all}
-      #xaiz-cb-body .bigmove{display:flex;justify-content:space-between;align-items:center;background:#374151;
-        border-radius:12px;padding:12px;margin:8px 0}
-      #xaiz-cb-body .bigmove b{font-size:24px;color:#4ade80}
-      #xaiz-cb-body .bigbtn{width:100%;padding:14px;border:0;border-radius:12px;font-weight:900;font-size:15px;
-        background:linear-gradient(90deg,#16a34a,#22c55e);color:#fff;cursor:pointer;margin-top:8px}
-      #xaiz-cb-auto.off{background:linear-gradient(90deg,#374151,#4b5563)}
-      #xaiz-cb-body .btns{display:flex;gap:8px;margin-top:8px}
-      #xaiz-cb-body .btns button{flex:1;min-height:44px;padding:10px 4px;border:0;border-radius:10px;font-weight:800;
-        background:#374151;color:#fff;cursor:pointer;font-size:13px}
-      #xaiz-cb-body .note{font-size:12px;color:#fbbf24;margin-top:10px;line-height:1.5}
+      #xaiz-cb-body .bigmove{display:flex;flex-direction:column;align-items:center;gap:2px;background:linear-gradient(160deg,rgba(245,158,11,.25),rgba(168,85,247,.2));
+        border:1px solid #f59e0b;border-radius:16px;padding:14px;margin:10px 0;text-align:center}
+      #xaiz-cb-body .bigmove .bm-label{font-size:11px;font-weight:900;letter-spacing:2px;color:#fbbf24}
+      #xaiz-cb-body .bigmove b{font-size:30px;color:#4ade80}
+      #xaiz-cb-body .bigmove small{font-size:12px;color:#e2e8f0}
+      #xaiz-cb-body .bigbtn{width:100%;padding:14px;border:0;border-radius:14px;font-weight:900;font-size:15px;
+        background:linear-gradient(90deg,#f59e0b,#f97316);color:#111827;cursor:pointer;margin:6px 0}
+      #xaiz-cb-body .bigbtn.off{background:#374151;color:#9ca3af}
+      #xaiz-cb-body .btns{display:flex;gap:6px;margin:6px 0}
+      #xaiz-cb-body .btns button{flex:1;padding:10px 4px;border:0;border-radius:12px;font-weight:800;font-size:12px;background:#334155;color:#fff;cursor:pointer}
+      #xaiz-cb-body .colorbtns button{color:#111827}
+      #xaiz-cb-body .note{font-size:11px;color:#cbd5e1;background:rgba(255,255,255,.06);border-radius:10px;padding:8px;margin:6px 0}
+      #xaiz-cb-body .hist{margin:8px 0;background:rgba(255,255,255,.06);border-radius:12px;padding:8px 10px;font-size:12px}
+      #xaiz-cb-body .hist-title{font-weight:900;color:#fbbf24;font-size:11px;letter-spacing:1px;margin-bottom:4px}
       #xaiz-cb-top3 .t3{display:flex;justify-content:space-between;align-items:center;width:100%;min-height:48px;
-        margin-top:8px;border:0;border-radius:12px;background:#374151;color:#fff;font-weight:800;font-size:15px;cursor:pointer;padding:0 12px}
+        padding:8px 12px;border:0;border-radius:12px;background:#1e293b;color:#fff;font-weight:800;font-size:15px;cursor:pointer;margin:6px 0}
       #xaiz-cb-top3 .t3 small{color:#9ca3af;font-size:12px}`;
     document.head.appendChild(st);
     document.body.appendChild(panel);
@@ -438,6 +466,12 @@
       if (arrowVisible) drawArrows(lastTop3.map(t => t.move)); else drawArrows([]);
       setStatus(arrowVisible ? 'Mũi tên đang BẬT — đi theo mũi tên xanh' : 'Mũi tên đã tắt');
     };
+    const updTop3Btn = () => { const b = q('#xaiz-cb-top3toggle'); if (b) b.textContent = showTop3Arrows ? '🏆 VẼ CẢ TOP 3: BẬT' : '🏆 CHỈ VẼ 1 MŨI TÊN'; };
+    updTop3Btn();
+    q('#xaiz-cb-top3toggle').onclick = () => { showTop3Arrows = !showTop3Arrows; GM_setValue('xaiz_top3arrows', showTop3Arrows); updTop3Btn(); drawArrows(lastTop3.map(t => t.move)); };
+    panel.querySelectorAll('.colorbtns button').forEach((b) => {
+      b.onclick = () => { arrowColor = b.dataset.color; GM_setValue('xaiz_arrowcolor', arrowColor); drawArrows(lastTop3.map(t => t.move)); setStatus('Đã đổi màu mũi tên — đi theo mũi tên mới'); };
+    });
     els.mode.textContent = 'MODE: ' + mode;
     els.mode.onclick = () => {
       const i = CFG.modeOrder.indexOf(mode);
@@ -550,6 +584,12 @@
       if (!reCheck || buildFen(reCheck.pieces) !== fen) { engineBusy = false; return; }
       lastBest = res.best; lastTop3 = res.top3 || []; lastEvalCp = res.cp; lastMate = res.mate;
       els.best.textContent = res.best;
+      const bl = panel.querySelector('#xaiz-cb-bestlabel');
+      if (bl) bl.textContent = pieceLabel(res.best, pieces);
+      hintHistory.unshift(res.best + ' (' + res.source + ')');
+      hintHistory = hintHistory.slice(0, 3);
+      const hh = panel.querySelector('#xaiz-cb-hist');
+      if (hh) hh.innerHTML = hintHistory.map((h, i) => (i + 1) + '. ' + h).join('<br>');
       els.src.textContent = res.source;
       const pctW = res.cp === null ? 50 : winPct(res.cp);
       els.evalfill.style.width = pctW + '%';
@@ -573,12 +613,12 @@
     const oldSvg = document.getElementById('xaiz-arrow-svg'); if (oldSvg) oldSvg.remove();
     buildPanel();
     renderTop3();
-    setStatus('XAIZ Hướng Dẫn v4 đã tải — vào ván rồi bấm QUÉT BÀN, đi theo mũi tên xanh');
+    setStatus('XAIZ VIP PRO MAX v5 đã tải — vào ván rồi bấm QUÉT BÀN, đi theo mũi tên');
     window.__xaizBotInterval = setInterval(() => { scan(false).catch(e => log('scan lỗi', e)); }, CFG.scanMs);
     document.addEventListener('keydown', (e) => {
       if (e.altKey && (e.key === 'b' || e.key === 'B')) panel.style.display = panel.style.display === 'none' ? '' : 'none';
     });
-    log('XAIZ Chess Hint Arrow v4.0.0 đã tải. Mode:', mode, 'Arrow:', arrowVisible);
+    log('XAIZ Chess Hint Arrow VIP PRO MAX v5.0.0 đã tải. Mode:', mode, 'Arrow:', arrowVisible, 'Color:', arrowColor);
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
   else init();
