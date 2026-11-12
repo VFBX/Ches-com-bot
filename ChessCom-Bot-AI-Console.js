@@ -1,9 +1,9 @@
-/* CHESS.COM BOT AI v2 - BẢN CHẠY BẰNG CONSOLE (không cần Tampermonkey)
+/* CHESS.COM BOT AI v2.1 - BẢN CHẠY BẰNG CONSOLE (không cần Tampermonkey)
    Cách dùng: mở chess.com bằng Kiwi, vào ván, mở Developers > JavaScript Console,
    dán TOÀN BỘ file này vào ô nhập, bấm nút chạy (▶). Panel bot sẽ hiện ra.
    Mỗi lần tải lại trang / vào ván mới thì dán lại 1 lần. */
 /*
-  CHESS.COM BOT AI v2.0.0 — XAIZ TOOL
+  CHESS.COM BOT AI v2.1.0 — XAIZ TOOL
   ------------------------------------
   NÓI THẬT VỀ 2 CON SỐ BẠN HỎI:
   - "Thắng 999%": KHÔNG CÓ. Thắng tối đa là 100%, và không ai thắng 100% mọi
@@ -39,6 +39,10 @@
   let autoMove = localStorage.getItem('xaiz_auto') === 'true';
   let flipped = false;
   let myColor = 'w';
+  // SỬA LỖI v2: nút ĐỔI CHIỀU BÀN ở v2 bị lần quét sau ghi đè (readPieces tự
+  // nhận lại chiều bàn nên nút bấm không có tác dụng). v2.1 thêm colorOverride:
+  // khi bạn chọn tay màu cờ thì lần quét sau KHÔNG tự nhận lại nữa.
+  let colorOverride = null; // 'w' | 'b' | null = tự nhận theo chiều bàn
   let lastFen = '';
   let lastBest = '';
   let lastTop3 = [];       // [{move, cp, mate}]
@@ -119,8 +123,8 @@
   function readPieces() {
     const board = getBoardEl();
     if (!board) return null;
-    flipped = detectFlipped(board);
-    myColor = flipped ? 'b' : 'w';
+    if (colorOverride) { flipped = (colorOverride === 'b'); myColor = colorOverride; }
+    else { flipped = detectFlipped(board); myColor = flipped ? 'b' : 'w'; }
     const pieces = {};
     board.querySelectorAll('.piece').forEach((el) => {
       const cls = el.className || '';
@@ -261,7 +265,7 @@
     panel.id = 'xaiz-chess-bot-panel';
     panel.innerHTML = `
       <div id="xaiz-cb-head">
-        <span>♟️ XAIZ CHESS BOT <span class="ver">v2 VIP</span></span>
+        <span>♟️ XAIZ CHESS BOT <span class="ver">v2.1 VIP</span></span>
         <span class="head-btns"><span id="xaiz-cb-min">—</span><span id="xaiz-cb-close">✕</span></span>
       </div>
       <div id="xaiz-cb-evalbar"><div id="xaiz-cb-evalfill"></div><span id="xaiz-cb-evaltxt">50%</span></div>
@@ -273,6 +277,7 @@
       </div>
       <div id="xaiz-cb-body">
         <div class="tabpage" data-page="bot">
+          <div class="row"><span>Bạn cầm:</span><b id="xaiz-cb-mycolor">Trắng ♔</b></div>
           <div class="row"><span>Trạng thái:</span><b id="xaiz-cb-status">Đang quét bàn…</b></div>
           <div class="bigmove"><span>Nước tốt nhất</span><b id="xaiz-cb-best">—</b></div>
           <div class="row"><span>Đánh giá:</span><b id="xaiz-cb-eval">—</b></div>
@@ -292,6 +297,11 @@
         </div>
         <div class="tabpage" data-page="set" style="display:none">
           <button id="xaiz-cb-mode" class="bigbtn">MODE: VIP</button>
+          <div class="row small"><span>Màu cờ của bạn (bấm để chọn, tool sẽ nhớ):</span></div>
+          <div class="btns">
+            <button id="xaiz-cb-white">♔ TÔI CẦM TRẮNG</button>
+            <button id="xaiz-cb-black">♚ TÔI CẦM ĐEN</button>
+          </div>
           <div class="btns">
             <button id="xaiz-cb-test">🎯 ĐI 1 NƯỚC</button>
             <button id="xaiz-cb-scan">🔍 QUÉT BÀN</button>
@@ -369,7 +379,9 @@
       lastFen = '';
     };
     q('#xaiz-cb-scan').onclick = () => { lastFen = ''; scan(true); };
-    q('#xaiz-cb-flip').onclick = () => { flipped = !flipped; myColor = flipped ? 'b' : 'w'; lastFen = ''; setStatus('Đã đổi chiều bàn, đang quét lại…'); scan(true); };
+    q('#xaiz-cb-white').onclick = () => { colorOverride = 'w'; lastFen = ''; setStatus('Đã chọn: bạn cầm Trắng, đang quét lại…'); scan(true); };
+    q('#xaiz-cb-black').onclick = () => { colorOverride = 'b'; lastFen = ''; setStatus('Đã chọn: bạn cầm Đen, đang quét lại…'); scan(true); };
+    q('#xaiz-cb-flip').onclick = () => { colorOverride = (myColor === 'w' ? 'b' : 'w'); lastFen = ''; setStatus('Đã đổi chiều bàn, đang quét lại…'); scan(true); };
     q('#xaiz-cb-test').onclick = async () => {
       if (!lastBest) { setStatus('Chưa có nước tốt nhất, bấm QUÉT BÀN trước'); return; }
       setStatus('Đang đi thử: ' + lastBest);
@@ -453,6 +465,8 @@
     lastOpening = findOpening(sans);
     renderOpening();
     els.fen.textContent = fen;
+    const mc = panel.querySelector('#xaiz-cb-mycolor');
+    if (mc) mc.textContent = myColor === 'w' ? 'Trắng ♔' : 'Đen ♚';
     const active = fen.split(' ')[1];
     const isMyTurn = active === myColor;
     if (fen === lastFen && !manual) return;
@@ -496,7 +510,7 @@
     document.addEventListener('keydown', (e) => {
       if (e.altKey && (e.key === 'b' || e.key === 'B')) panel.style.display = panel.style.display === 'none' ? '' : 'none';
     });
-    log('XAIZ Chess Bot v2.0.0 đã tải. Mode:', mode, 'Auto:', autoMove);
+    log('XAIZ Chess Bot v2.1.0 đã tải. Mode:', mode, 'Auto:', autoMove);
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
   else init();
