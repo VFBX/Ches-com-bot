@@ -1,7 +1,8 @@
-/* CHESS.COM HINT ARROW VIP NHẤT PRO MAX v8.0 - BẢN CHẠY BẰNG CONSOLE (không cần Tampermonkey)
-   Có tự kiểm tra engine khi tải + bọc lỗi vòng quét. Đường dẫn: GitHub VFBX/Ches-com-bot.
+/* CHESS.COM BOT AI VIP NHẤT PRO MAX v9.0 - BẢN CHẠY BẰNG CONSOLE (không cần Tampermonkey)
+   Bot TỰ ĐI toàn quyền: tự phân tích (engine local + Lichess + Stockfish) và tự bấm quân.
    Cách dùng: mở chess.com bằng Kiwi, vào ván Bot, mở Developers > JavaScript Console,
    dán TOÀN BỘ file này vào ô nhập, bấm nút chạy (▶). Mỗi lần tải lại trang thì dán lại 1 lần. */
+
 
 
 
@@ -50,6 +51,7 @@
   let hintHistory = [];
   let botOnly = localStorage.getItem('xaiz_botonly') !== 'false'; // chỉ chạy ở ván Bot (chống ban)
   let bulletMode = localStorage.getItem('xaiz_bullet') === 'true'; // trận 1 phút: quét 300ms, chỉ engine local
+  let autoMove = localStorage.getItem('xaiz_auto') !== 'false'; // TỰ ĐI toàn quyền: Bot tự phân tích và tự bấm quân
   let autoColor = localStorage.getItem('xaiz_autocolor') !== 'false'; // tự nhận bên Trắng/Đen theo chiều bàn
   const fenCache = new Map(); // thế cờ đã phân tích: gặp lại lấy ngay, không gọi API
   let lastAnalyseAt = 0;
@@ -631,6 +633,55 @@
     board.appendChild(svg);
   }
 
+  // ================= BẤM QUÂN (BOT TỰ ĐI) =================
+  // Bấm ô theo tọa độ hiển thị trên màn hình (tính theo chiều bàn hiện tại).
+  function squareCenterPoint(board, sq) {
+    const r = board.getBoundingClientRect();
+    const file = FILES.indexOf(sq[0]);
+    const rank = parseInt(sq[1], 10);
+    let col, row;
+    if (!flipped) { col = file; row = 8 - rank; } else { col = 7 - file; row = rank - 1; }
+    return { x: r.left + (col + 0.5) * (r.width / 8), y: r.top + (row + 0.5) * (r.height / 8) };
+  }
+  function squareToXY(sq) {
+    const file = FILES.indexOf(sq[0]);
+    const rank = parseInt(sq[1], 10);
+    return { x: file + 1, y: rank };
+  }
+  function fireClickAt(x, y) {
+    const el = document.elementFromPoint(x, y) || document.body;
+    const opts = { bubbles: true, cancelable: true, clientX: x, clientY: y, button: 0, pointerId: 1, isPrimary: true };
+    el.dispatchEvent(new PointerEvent('pointerdown', opts));
+    el.dispatchEvent(new MouseEvent('mousedown', opts));
+    el.dispatchEvent(new PointerEvent('pointerup', opts));
+    el.dispatchEvent(new MouseEvent('mouseup', opts));
+    el.dispatchEvent(new MouseEvent('click', opts));
+  }
+  function clickSquare(board, sq) {
+    const xy = squareToXY(sq);
+    const el = board.querySelector('.square-' + xy.x + '' + xy.y);
+    if (el) { el.dispatchEvent(new MouseEvent('mousedown', { bubbles: true })); el.dispatchEvent(new MouseEvent('mouseup', { bubbles: true })); el.click(); return true; }
+    const pt = squareCenterPoint(board, sq);
+    fireClickAt(pt.x, pt.y);
+    return true;
+  }
+  async function playMove(uci) {
+    const board = getBoardEl();
+    if (!board || !uci || uci.length < 4) return false;
+    const from = uci.slice(0, 2), to = uci.slice(2, 4), promo = uci.slice(4, 5);
+    clickSquare(board, from);
+    await sleep(rand(120, 260));
+    clickSquare(board, to);
+    await sleep(400);
+    if (promo) {
+      const qBtn = document.querySelector('[data-test-element="promotion-piece-q"], .promotion-piece.q, [class*="promotion"] [class*="q"]');
+      if (qBtn) { qBtn.click(); await sleep(300); }
+    }
+    hintMoves++;
+    updateStats();
+    return true;
+  }
+
   // ================= MENU VIP MOBILE =================
   let panel, els = {};
   let curTab = 'bot';
@@ -639,7 +690,7 @@
     panel.id = 'xaiz-chess-bot-panel';
     panel.innerHTML = `
       <div id="xaiz-cb-head">
-        <span>♟️ XAIZ VIP <span class="ver">NHẤT v8.0</span></span>
+        <span>🤖 XAIZ BOT <span class="ver">TỰ ĐI v9.0</span></span>
         <span class="head-btns"><span id="xaiz-cb-min">—</span><span id="xaiz-cb-close">✕</span></span>
       </div>
       <div id="xaiz-cb-evalbar"><div id="xaiz-cb-evalfill"></div><span id="xaiz-cb-evaltxt">50%</span></div>
@@ -658,9 +709,10 @@
           <div class="row"><span>Đánh giá:</span><b id="xaiz-cb-eval">—</b></div>
           <div class="row"><span>Nguồn:</span><b id="xaiz-cb-src">—</b></div>
           <div class="row small"><span>FEN:</span><code id="xaiz-cb-fen">—</code></div>
+          <button id="xaiz-cb-auto" class="bigbtn">🤖 TỰ ĐI: BẬT</button>
           <button id="xaiz-cb-arrow" class="bigbtn">👁 MŨI TÊN: BẬT</button>
           <div class="hist"><div class="hist-title">📜 Gợi ý vừa rồi</div><div id="xaiz-cb-hist">—</div></div>
-          <div class="row small"><span>Đã hướng dẫn:</span><b id="xaiz-cb-count">0 nước</b></div>
+          <div class="row small"><span>Bot đã đi:</span><b id="xaiz-cb-count">0 nước</b></div>
           <div class="row small"><span>Cache thế cờ:</span><b id="xaiz-cb-cache">0 đã lưu</b></div>
         </div>
         <div class="tabpage" data-page="top3" style="display:none">
@@ -690,6 +742,7 @@
             <button id="xaiz-cb-black">♚ TÔI CẦM ĐEN</button>
           </div>
           <div class="btns">
+            <button id="xaiz-cb-test">🎯 ĐI 1 NƯỚC</button>
             <button id="xaiz-cb-scan">🔍 QUÉT BÀN</button>
           </div>
           <button id="xaiz-cb-check" class="bigbtn" style="background:linear-gradient(90deg,#7c3aed,#a855f7)">✅ KIỂM TRA TOOL</button>
@@ -708,7 +761,7 @@
           <div class="btns">
             <button id="xaiz-cb-hide">👁 ẨN MENU</button>
           </div>
-          <div class="note">Tool CHỈ VẼ MŨI TÊN hướng dẫn, KHÔNG tự bấm quân — bạn tự đi theo mũi tên. Mũi tên = nước tốt nhất của engine (XAIZ local + Lichess Book + Stockfish), không thắng 100% được. Chỉ test với Bot / ván không xếp hạng, đánh rank dùng engine = khóa acc.<br>📦 Đường dẫn không mất: GitHub <b>VFBX/Ches-com-bot</b> — file <b>ChessCom-Hint-Arrow.user.js</b> (Tampermonkey) và <b>ChessCom-Hint-Arrow-Console.js</b> (dán Console).</div>
+          <div class="note">BOT TỰ ĐI TOÀN QUYỀN: Bot tự phân tích (engine local + Lichess + Stockfish) và tự bấm quân đi cho bạn, mũi tên chỉ để bạn xem Bot sắp đi nước nào. Tắt nút TỰ ĐI thì về chế độ chỉ vẽ mũi tên. Mũi tên = nước tốt nhất của engine (XAIZ local + Lichess Book + Stockfish), không thắng 100% được. Chỉ test với Bot / ván không xếp hạng, đánh rank dùng engine = khóa acc.<br>📦 Đường dẫn không mất: GitHub <b>VFBX/Ches-com-bot</b> — file <b>ChessCom-Hint-Arrow.user.js</b> (Tampermonkey) và <b>ChessCom-Hint-Arrow-Console.js</b> (dán Console).</div>
         </div>
       </div>`;
     const st = document.createElement('style');
@@ -751,7 +804,7 @@
     const q = (s) => panel.querySelector(s);
     els = {
       status: q('#xaiz-cb-status'), best: q('#xaiz-cb-best'), eval: q('#xaiz-cb-eval'),
-      src: q('#xaiz-cb-src'), fen: q('#xaiz-cb-fen'), arrow: q('#xaiz-cb-arrow'),
+      src: q('#xaiz-cb-src'), fen: q('#xaiz-cb-fen'), arrow: q('#xaiz-cb-arrow'), auto: q('#xaiz-cb-auto'),
       mode: q('#xaiz-cb-mode'), top3: q('#xaiz-cb-top3'), opening: q('#xaiz-cb-opening'),
       openmoves: q('#xaiz-cb-openmoves'), count: q('#xaiz-cb-count'),
       evalfill: q('#xaiz-cb-evalfill'), evaltxt: q('#xaiz-cb-evaltxt'),
@@ -764,6 +817,14 @@
         panel.querySelectorAll('.tabpage').forEach(p => { p.style.display = p.dataset.page === curTab ? '' : 'none'; });
       };
     });
+    els.auto.textContent = autoMove ? '🤖 TỰ ĐI: BẬT' : '🤖 TỰ ĐI: TẮT';
+    els.auto.classList.toggle('off', !autoMove);
+    els.auto.onclick = () => {
+      autoMove = !autoMove; localStorage.setItem('xaiz_auto', String(autoMove));
+      els.auto.textContent = autoMove ? '🤖 TỰ ĐI: BẬT' : '🤖 TỰ ĐI: TẮT';
+      els.auto.classList.toggle('off', !autoMove);
+      setStatus(autoMove ? 'TỰ ĐI đã BẬT — Bot tự đi toàn quyền' : 'TỰ ĐI đã tắt — chỉ vẽ mũi tên, bạn tự đi');
+    };
     els.arrow.textContent = arrowVisible ? '👁 MŨI TÊN: BẬT' : '👁 MŨI TÊN: TẮT';
     els.arrow.classList.toggle('off', !arrowVisible);
     els.arrow.onclick = () => {
@@ -800,6 +861,11 @@
       localStorage.setItem('xaiz_mode', mode);
       els.mode.textContent = 'MODE: ' + mode;
       lastFen = '';
+    };
+    q('#xaiz-cb-test').onclick = async () => {
+      if (!lastBest) { setStatus('Chưa có nước tốt nhất, bấm QUÉT BÀN trước'); return; }
+      setStatus('Bot đi thử: ' + lastBest);
+      await playMove(lastBest);
     };
     q('#xaiz-cb-scan').onclick = () => { lastFen = ''; scan(true); };
     q('#xaiz-cb-check').onclick = async () => {
@@ -863,7 +929,7 @@
       const pct = t.cp === null ? '—' : (winPct(myColor === 'w' ? t.cp : -t.cp) + '%');
       const mate = t.mate ? ' Mate ' + Math.abs(t.mate) : '';
       b.innerHTML = `<span>${i + 1}. ${t.move}</span><small>${mate || pct}</small>`;
-      b.onclick = () => { drawArrows([t.move]); setStatus('Mũi tên đang chỉ nước: ' + t.move + ' — bạn tự đi theo mũi tên'); };
+      b.onclick = async () => { setStatus('Bot đi nước: ' + t.move); await playMove(t.move); };
       els.top3.appendChild(b);
     });
   }
@@ -928,7 +994,18 @@
       if (cc) cc.textContent = fenCache.size + ' đã lưu';
       hintMoves++; updateStats();
       renderTop3();
-      setStatus('Mũi tên xanh = nước tốt nhất: ' + res.best + ' (' + res.source + ') — bạn tự đi theo mũi tên');
+      if (autoMove) {
+        const d = rand(CFG.modes[mode].delayMin, CFG.modes[mode].delayMax);
+        setStatus('Bot sẽ tự đi sau ' + (Math.round(d / 100) / 10) + 's: ' + res.best + ' (' + res.source + ')');
+        await sleep(d);
+        const reCheck2 = readPieces();
+        if (reCheck2 && buildFen(reCheck2.pieces) === fen && lastBest === res.best) {
+          await playMove(res.best);
+          setStatus('Bot đã đi: ' + res.best + ' — đợi đối thủ…');
+        }
+      } else {
+        setStatus('Mũi tên xanh = nước tốt nhất: ' + res.best + ' (' + res.source + ') — TỰ ĐI đang tắt, bạn tự đi theo mũi tên');
+      }
     } catch (e) {
       setStatus('Engine lỗi: ' + e.message + ' — thử QUÉT BÀN lại');
       log('analyse lỗi', e);
@@ -953,9 +1030,9 @@
     renderTop3();
     try {
       const t = xeAnalyse('rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1', 2);
-      if (t && t.best) setStatus('XAIZ VIP NHẤT v8 đã tải — ✅ Engine local OK (' + t.best + '), vào ván rồi bấm QUÉT BÀN');
-      else setStatus('XAIZ VIP NHẤT v8 đã tải — ⚠️ Engine local chưa chạy, sẽ dùng mạng');
-    } catch (e) { setStatus('XAIZ VIP NHẤT v8 đã tải — ⚠️ Engine local lỗi, sẽ dùng mạng'); log('tự kiểm tra engine lỗi', e); }
+      if (t && t.best) setStatus('XAIZ BOT v9 đã tải — ✅ Engine local OK (' + t.best + '), vào ván Bot, Bot tự đi');
+      else setStatus('XAIZ BOT v9 đã tải — ⚠️ Engine local chưa chạy, sẽ dùng mạng');
+    } catch (e) { setStatus('XAIZ BOT v9 đã tải — ⚠️ Engine local lỗi, sẽ dùng mạng'); log('tự kiểm tra engine lỗi', e); }
     restartInterval();
     if (window.__xaizWatchdog) clearInterval(window.__xaizWatchdog);
     window.__xaizWatchdog = setInterval(() => {
@@ -964,7 +1041,7 @@
     document.addEventListener('keydown', (e) => {
       if (e.altKey && (e.key === 'b' || e.key === 'B')) panel.style.display = panel.style.display === 'none' ? '' : 'none';
     });
-    log('XAIZ Chess Hint Arrow VIP NHẤT PRO MAX v8.0.0 đã tải. Mode:', mode, 'Arrow:', arrowVisible, 'Color:', arrowColor, 'Bullet:', bulletMode, 'AutoColor:', autoColor);
+    log('XAIZ Chess Bot AI VIP NHẤT PRO MAX v9.0.0 đã tải. Mode:', mode, 'Auto:', autoMove, 'Arrow:', arrowVisible, 'Bullet:', bulletMode, 'AutoColor:', autoColor);
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
   else init();
