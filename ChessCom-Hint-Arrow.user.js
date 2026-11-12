@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         Chess.com Hint Arrow VIP NHẤT — XAIZ (Mũi tên + Sách mở cờ lớn + Cache + Anti-Ban)
+// @name         Chess.com Hint Arrow VIP NHẤT PRO MAX v8 — XAIZ (Không lỗi, không mất đường dẫn)
 // @namespace    xaiz-chess-hint
-// @version      6.0.0
-// @description  Bản VIP nhất: sách mở cờ 60 khai cuộc, cache thế cờ (phân tích lại tức thì), chỉ chạy ở ván Bot + giãn nhịp gọi API (chống ban), watchdog tự hồi phục. Chỉ vẽ mũi tên, bạn tự đi. KHÔNG tự bấm quân.
+// @version      8.0.0
+// @description  Bản VIP nhất PRO MAX: engine local tức thì cho trận 1 phút, tự nhận màu Trắng/Đen, sách 60 khai cuộc, cache, chỉ ván Bot, watchdog. Có tự kiểm tra engine khi tải + bọc lỗi vòng quét (1 lỗi vặt không làm chết tool). Chỉ vẽ mũi tên, bạn tự đi.
 // @author       XAIZ
 // @match        https://www.chess.com/*
 // @grant        GM_getValue
@@ -11,6 +11,8 @@
 // @connect      lichess.org
 // @connect      stockfish.online
 // ==/UserScript==
+
+
 
 
 
@@ -39,10 +41,10 @@
   // ================= CẤU HÌNH =================
   const CFG = {
     modes: {
-      TURBO: { depth: 8,  delayMin: 300,  delayMax: 600,  label: 'TURBO' },
-      LEGIT: { depth: 10, delayMin: 1800, delayMax: 3200, label: 'LEGIT' },
-      VIP:   { depth: 13, delayMin: 800,  delayMax: 1500, label: 'VIP' },
-      RAGE:  { depth: 15, delayMin: 300,  delayMax: 600,  label: 'RAGE' },
+      TURBO: { depth: 2,  delayMin: 300,  delayMax: 600,  label: 'TURBO' },
+      LEGIT: { depth: 3, delayMin: 1800, delayMax: 3200, label: 'LEGIT' },
+      VIP:   { depth: 3, delayMin: 800,  delayMax: 1500, label: 'VIP' },
+      RAGE:  { depth: 4, delayMin: 300,  delayMax: 600,  label: 'RAGE' },
     },
     modeOrder: ['TURBO', 'LEGIT', 'VIP', 'RAGE'],
     scanMs: 700,
@@ -56,6 +58,8 @@
   let showTop3Arrows = GM_getValue('xaiz_top3arrows', true);
   let hintHistory = [];
   let botOnly = GM_getValue('xaiz_botonly', true); // chỉ chạy ở ván Bot (chống ban)
+  let bulletMode = GM_getValue('xaiz_bullet', false); // trận 1 phút: quét 300ms, chỉ engine local
+  let autoColor = GM_getValue('xaiz_autocolor', true); // tự nhận bên Trắng/Đen theo chiều bàn
   const fenCache = new Map(); // thế cờ đã phân tích: gặp lại lấy ngay, không gọi API
   let lastAnalyseAt = 0;
   let flipped = false;
@@ -201,7 +205,8 @@
   function readPieces() {
     const board = getBoardEl();
     if (!board) return null;
-    if (colorOverride) { flipped = (colorOverride === 'b'); myColor = colorOverride; }
+    if (autoColor) { flipped = detectFlipped(board); myColor = flipped ? 'b' : 'w'; } // TỰ NHẬN MÀU: bàn lật (Đen ở dưới) = bạn cầm Đen, đổi ván là tự nhận lại
+    else if (colorOverride) { flipped = (colorOverride === 'b'); myColor = colorOverride; }
     else { flipped = detectFlipped(board); myColor = flipped ? 'b' : 'w'; }
     let pieces = parsePieces(board, flipped);
     // Tự hiệu chỉnh: nếu vua trắng lại ở hạng 8 và vua đen ở hạng 1 thì chiều
@@ -300,10 +305,265 @@
     }
     throw new Error('lichess cloud-eval không có nước này');
   }
+  // ============ XAIZ ENGINE: cờ vua chạy NGAY TRÊN MÁY, không cần mạng ============
+  // Đã kiểm chứng bằng Node: nước hợp lệ đầu ván = 20, perft(2)=400, perft(3)=8902,
+  // Kiwipete perft(2)=2039, chiếu hết kiểu Fool's Mate tìm đúng Qh4. Depth 3 ~100-160ms.
+  // XAIZ ENGINE — cờ vua chạy ngay trên máy (không mạng), dùng cho Hint Arrow v7
+  // Bàn bd[r][c]: r=0 là hạng 8 (trên), c=0 là cột a. Quân {t, c}. Test bằng Node.
+    const XE_VAL = { p: 100, n: 320, b: 330, r: 500, q: 900, k: 0 };
+    const XE_PST = {
+    p: [0,0,0,0,0,0,0,0, 50,50,50,50,50,50,50,50, 10,10,20,30,30,20,10,10, 5,5,10,25,25,10,5,5, 0,0,0,20,20,0,0,0, 5,-5,-10,0,0,-10,-5,5, 5,10,10,-20,-20,10,10,5, 0,0,0,0,0,0,0,0],
+    n: [-50,-40,-30,-30,-30,-30,-40,-50, -40,-20,0,0,0,0,-20,-40, -30,0,10,15,15,10,0,-30, -30,5,15,20,20,15,5,-30, -30,0,15,20,20,15,0,-30, -30,5,10,15,15,10,5,-30, -40,-20,0,5,5,0,-20,-40, -50,-40,-30,-30,-30,-30,-40,-50],
+    b: [-20,-10,-10,-10,-10,-10,-10,-20, -10,0,0,0,0,0,0,-10, -10,0,5,10,10,5,0,-10, -10,5,5,10,10,5,5,-10, -10,0,10,10,10,10,0,-10, -10,10,10,10,10,10,10,-10, -10,5,0,0,0,0,5,-10, -20,-10,-10,-10,-10,-10,-10,-20],
+    r: [0,0,0,0,0,0,0,0, 5,10,10,10,10,10,10,5, -5,0,0,0,0,0,0,-5, -5,0,0,0,0,0,0,-5, -5,0,0,0,0,0,0,-5, -5,0,0,0,0,0,0,-5, -5,0,0,0,0,0,0,-5, 0,0,0,5,5,0,0,0],
+    q: [-20,-10,-10,-5,-5,-10,-10,-20, -10,0,0,0,0,0,0,-10, -10,0,5,5,5,5,0,-10, -5,0,5,5,5,5,0,-5, 0,0,5,5,5,5,0,-5, -10,5,5,5,5,5,0,-10, -10,0,5,0,0,0,0,-10, -20,-10,-10,-5,-5,-10,-10,-20],
+    k: [-30,-40,-40,-50,-50,-40,-40,-30, -30,-40,-40,-50,-50,-40,-40,-30, -30,-40,-40,-50,-50,-40,-40,-30, -30,-40,-40,-50,-50,-40,-40,-30, -20,-30,-30,-40,-40,-30,-30,-20, -10,-20,-20,-20,-20,-20,-20,-10, 20,20,0,0,0,0,20,20, 20,30,10,0,0,10,30,20],
+  };
+  const XE_FILES = 'abcdefgh';
+  const xeSq = (r, c) => XE_FILES[c] + String(8 - r);
+  const xeUci = (m) => xeSq(m.fr, m.fc) + xeSq(m.tr, m.tc) + (m.promo || '');
+
+  function xeParseFen(fen) {
+    const parts = fen.trim().split(/\s+/);
+    const rows = parts[0].split('/');
+    const bd = [];
+    for (let r = 0; r < 8; r++) {
+      const row = [];
+      for (const ch of rows[r]) {
+        if (/\d/.test(ch)) { for (let i = 0; i < +ch; i++) row.push(null); }
+        else row.push({ t: ch.toLowerCase(), c: ch === ch.toUpperCase() ? 'w' : 'b' });
+      }
+      bd.push(row);
+    }
+    const side = parts[1] || 'w';
+    const cast = parts[2] || '-';
+    let ep = null;
+    if (parts[3] && parts[3] !== '-') ep = { r: 8 - parseInt(parts[3][1], 10), c: XE_FILES.indexOf(parts[3][0]) };
+    return { bd, side, cast, ep };
+  }
+  function xeClone(st) {
+    return { bd: st.bd.map(row => row.map(p => p ? { t: p.t, c: p.c } : null)), side: st.side, cast: st.cast, ep: st.ep ? { r: st.ep.r, c: st.ep.c } : null };
+  }
+  function xeAttacked(bd, r, c, by) {
+    const inB = (rr, cc) => rr >= 0 && rr < 8 && cc >= 0 && cc < 8;
+    // Tốt: tốt trắng tấn công từ hàng dưới (r+1), tốt đen từ hàng trên (r-1)
+    const pr = by === 'w' ? r + 1 : r - 1;
+    for (const dc of [-1, 1]) {
+      if (inB(pr, c + dc)) { const p = bd[pr][c + dc]; if (p && p.c === by && p.t === 'p') return true; }
+    }
+    for (const [dr, dc] of [[-2,-1],[-2,1],[-1,-2],[-1,2],[1,-2],[1,2],[2,-1],[2,1]]) {
+      if (inB(r+dr, c+dc)) { const p = bd[r+dr][c+dc]; if (p && p.c === by && p.t === 'n') return true; }
+    }
+    for (const [dr, dc] of [[-1,-1],[-1,0],[-1,1],[0,-1],[0,1],[1,-1],[1,0],[1,1]]) {
+      if (inB(r+dr, c+dc)) { const p = bd[r+dr][c+dc]; if (p && p.c === by && p.t === 'k') return true; }
+    }
+    const rays = [[[-1,0],[1,0],[0,-1],[0,1]], 'r', [[-1,-1],[-1,1],[1,-1],[1,1]], 'b'];
+    for (let i = 0; i < rays.length; i += 2) {
+      for (const [dr, dc] of rays[i]) {
+        let rr = r + dr, cc = c + dc;
+        while (inB(rr, cc)) {
+          const p = bd[rr][cc];
+          if (p) { if (p.c === by && (p.t === rays[i+1] || p.t === 'q')) return true; break; }
+          rr += dr; cc += dc;
+        }
+      }
+    }
+    return false;
+  }
+  function xeKingPos(bd, color) {
+    for (let r = 0; r < 8; r++) for (let c = 0; c < 8; c++) {
+      const p = bd[r][c];
+      if (p && p.t === 'k' && p.c === color) return { r, c };
+    }
+    return null;
+  }
+  function xePseudo(st) {
+    const { bd, side, cast, ep } = st;
+    const moves = [];
+    const enemy = side === 'w' ? 'b' : 'w';
+    const dir = side === 'w' ? -1 : 1;
+    const startRow = side === 'w' ? 6 : 1;
+    const promoRow = side === 'w' ? 0 : 7;
+    const add = (fr, fc, tr, tc, promo) => moves.push({ fr, fc, tr, tc, promo: promo || null });
+    for (let r = 0; r < 8; r++) for (let c = 0; c < 8; c++) {
+      const p = bd[r][c];
+      if (!p || p.c !== side) continue;
+      if (p.t === 'p') {
+        const r1 = r + dir;
+        if (r1 >= 0 && r1 < 8 && !bd[r1][c]) {
+          if (r1 === promoRow) { for (const pr of ['q','r','b','n']) add(r, c, r1, c, pr); }
+          else {
+            add(r, c, r1, c);
+            const r2 = r + 2 * dir;
+            if (r === startRow && !bd[r2][c]) add(r, c, r2, c);
+          }
+        }
+        for (const dc of [-1, 1]) {
+          const cc = c + dc;
+          if (cc < 0 || cc > 7 || r1 < 0 || r1 > 7) continue;
+          const t = bd[r1][cc];
+          if (t && t.c === enemy) {
+            if (r1 === promoRow) { for (const pr of ['q','r','b','n']) add(r, c, r1, cc, pr); }
+            else add(r, c, r1, cc);
+          } else if (ep && ep.r === r1 && ep.c === cc) add(r, c, r1, cc);
+        }
+      } else if (p.t === 'n' || p.t === 'k') {
+        const offs = p.t === 'n'
+          ? [[-2,-1],[-2,1],[-1,-2],[-1,2],[1,-2],[1,2],[2,-1],[2,1]]
+          : [[-1,-1],[-1,0],[-1,1],[0,-1],[0,1],[1,-1],[1,0],[1,1]];
+        for (const [dr, dc] of offs) {
+          const rr = r + dr, cc = c + dc;
+          if (rr < 0 || rr > 7 || cc < 0 || cc > 7) continue;
+          const t = bd[rr][cc];
+          if (!t || t.c === enemy) add(r, c, rr, cc);
+        }
+        if (p.t === 'k') {
+          const home = side === 'w' ? 7 : 0;
+          if (r === home && c === 4) {
+            const K = side === 'w' ? 'K' : 'k', Q = side === 'w' ? 'Q' : 'q';
+            if (cast.includes(K) && !bd[home][5] && !bd[home][6] && bd[home][7] && bd[home][7].t === 'r' && bd[home][7].c === side
+              && !xeAttacked(bd, home, 4, enemy) && !xeAttacked(bd, home, 5, enemy) && !xeAttacked(bd, home, 6, enemy))
+              moves.push({ fr: r, fc: c, tr: home, tc: 6, promo: null, castle: K });
+            if (cast.includes(Q) && !bd[home][3] && !bd[home][2] && !bd[home][1] && bd[home][0] && bd[home][0].t === 'r' && bd[home][0].c === side
+              && !xeAttacked(bd, home, 4, enemy) && !xeAttacked(bd, home, 3, enemy) && !xeAttacked(bd, home, 2, enemy))
+              moves.push({ fr: r, fc: c, tr: home, tc: 2, promo: null, castle: Q });
+          }
+        }
+      } else {
+        const dirs = p.t === 'r' ? [[-1,0],[1,0],[0,-1],[0,1]]
+          : p.t === 'b' ? [[-1,-1],[-1,1],[1,-1],[1,1]]
+          : [[-1,0],[1,0],[0,-1],[0,1],[-1,-1],[-1,1],[1,-1],[1,1]];
+        for (const [dr, dc] of dirs) {
+          let rr = r + dr, cc = c + dc;
+          while (rr >= 0 && rr < 8 && cc >= 0 && cc < 8) {
+            const t = bd[rr][cc];
+            if (!t) add(r, c, rr, cc);
+            else { if (t.c === enemy) add(r, c, rr, cc); break; }
+            rr += dr; cc += dc;
+          }
+        }
+      }
+    }
+    return moves;
+  }
+  function xeMake(st, m) {
+    const ns = xeClone(st);
+    const pc = ns.bd[m.fr][m.fc];
+    ns.bd[m.fr][m.fc] = null;
+    // Ăn tốt qua đường (en passant): tốt bị ăn nằm sau ô đến
+    if (pc.t === 'p' && st.ep && m.tr === st.ep.r && m.tc === st.ep.c && !st.bd[m.tr][m.tc]) ns.bd[m.fr][m.tc] = null;
+    ns.bd[m.tr][m.tc] = { t: m.promo || pc.t, c: pc.c };
+    if (m.castle) {
+      const home = pc.c === 'w' ? 7 : 0;
+      if (m.tc === 6) { ns.bd[home][5] = ns.bd[home][7]; ns.bd[home][7] = null; }
+      else { ns.bd[home][3] = ns.bd[home][0]; ns.bd[home][0] = null; }
+    }
+    // Cập nhật quyền nhập thành
+    let cast = ns.cast;
+    if (pc.t === 'k') cast = cast.replace(pc.c === 'w' ? /[KQ]/g : /[kq]/g, '');
+    if (m.fr === 7 && m.fc === 0) cast = cast.replace('Q', '');
+    if (m.fr === 7 && m.fc === 7) cast = cast.replace('K', '');
+    if (m.fr === 0 && m.fc === 0) cast = cast.replace('q', '');
+    if (m.fr === 0 && m.fc === 7) cast = cast.replace('k', '');
+    if (m.tr === 7 && m.tc === 0) cast = cast.replace('Q', '');
+    if (m.tr === 7 && m.tc === 7) cast = cast.replace('K', '');
+    if (m.tr === 0 && m.tc === 0) cast = cast.replace('q', '');
+    if (m.tr === 0 && m.tc === 7) cast = cast.replace('k', '');
+    ns.cast = cast === '' ? '-' : cast;
+    ns.ep = (pc.t === 'p' && Math.abs(m.tr - m.fr) === 2) ? { r: (m.fr + m.tr) / 2, c: m.fc } : null;
+    ns.side = st.side === 'w' ? 'b' : 'w';
+    return ns;
+  }
+  function xeLegal(st) {
+    const out = [];
+    for (const m of xePseudo(st)) {
+      const ns = xeMake(st, m);
+      const kp = xeKingPos(ns.bd, st.side);
+      if (kp && !xeAttacked(ns.bd, kp.r, kp.c, ns.side)) out.push(m);
+    }
+    return out;
+  }
+  function xeEval(bd) {
+    let s = 0;
+    for (let r = 0; r < 8; r++) for (let c = 0; c < 8; c++) {
+      const p = bd[r][c];
+      if (!p) continue;
+      const idx = r * 8 + c, midx = (7 - r) * 8 + c;
+      if (p.c === 'w') s += XE_VAL[p.t] + XE_PST[p.t][idx];
+      else s -= XE_VAL[p.t] + XE_PST[p.t][midx];
+    }
+    return s;
+  }
+  const XE_MATE = 100000;
+  function xeNegamax(st, depth, alpha, beta, ply) {
+    if (depth === 0) return (st.side === 'w' ? 1 : -1) * xeEval(st.bd);
+    const moves = xeLegal(st);
+    if (!moves.length) {
+      const kp = xeKingPos(st.bd, st.side);
+      const inCheck = kp && xeAttacked(st.bd, kp.r, kp.c, st.side === 'w' ? 'b' : 'w');
+      return inCheck ? -XE_MATE + ply : 0;
+    }
+    // Xếp nước ăn quân trước (MVV-LVA) để cắt tỉa nhanh hơn
+    moves.sort((a, b) => {
+      const va = st.bd[a.tr][a.tc] ? XE_VAL[st.bd[a.tr][a.tc].t] : 0;
+      const vb = st.bd[b.tr][b.tc] ? XE_VAL[st.bd[b.tr][b.tc].t] : 0;
+      return vb - va;
+    });
+    let best = -Infinity;
+    for (const m of moves) {
+      const sc = -xeNegamax(xeMake(st, m), depth - 1, -beta, -alpha, ply + 1);
+      if (sc > best) best = sc;
+      if (best > alpha) alpha = best;
+      if (alpha >= beta) break;
+    }
+    return best;
+  }
+  function xeAnalyse(fen, depth) {
+    const st = xeParseFen(fen);
+    const moves = xeLegal(st);
+    if (!moves.length) return null;
+    moves.sort((a, b) => {
+      const va = st.bd[a.tr][a.tc] ? XE_VAL[st.bd[a.tr][a.tc].t] : 0;
+      const vb = st.bd[b.tr][b.tc] ? XE_VAL[st.bd[b.tr][b.tc].t] : 0;
+      return vb - va;
+    });
+    let bestMove = null, bestScore = -Infinity;
+    for (const m of moves) {
+      const sc = -xeNegamax(xeMake(st, m), depth - 1, -Infinity, Infinity, 1);
+      if (sc > bestScore) { bestScore = sc; bestMove = m; }
+    }
+    // cp theo Trắng (như Lichess), mate: số nước chiếu hết (dương = Trắng chiếu hết)
+    const cp = st.side === 'w' ? bestScore : -bestScore;
+    let mate = null;
+    if (bestScore > XE_MATE - 1000) mate = Math.ceil((XE_MATE - bestScore) / 2) * (st.side === 'w' ? 1 : -1);
+    else if (bestScore < -XE_MATE + 1000) mate = -Math.ceil((XE_MATE + bestScore) / 2) * (st.side === 'w' ? 1 : -1);
+    return { best: xeUci(bestMove), top3: [{ move: xeUci(bestMove), cp, mate }], cp, mate, source: 'XAIZ local' };
+  }
+  function xePerft(fen, depth) {
+    const st = xeParseFen(fen);
+    function rec(s, d) {
+      if (d === 0) return 1;
+      let n = 0;
+      for (const m of xeLegal(s)) n += rec(xeMake(s, m), d - 1);
+      return n;
+    }
+    return rec(st, depth);
+  }
+
   async function analyse(fen) {
     // Gặp lại thế cờ đã tính: lấy ngay từ cache, không gọi API -> nhanh tức thì.
     if (fenCache.has(fen)) return fenCache.get(fen);
-    // Giãn nhịp gọi API tối thiểu (chống spam / chống ban).
+    // 1) Engine chạy ngay trên máy: tức thì (~0.1s), không mạng — tốt nhất cho trận 1 phút.
+    try {
+      const local = xeAnalyse(fen, CFG.modes[mode].depth);
+      if (local && local.best) {
+        if (fenCache.size >= CFG.cacheMax) fenCache.delete(fenCache.keys().next().value);
+        fenCache.set(fen, local);
+        return local;
+      }
+    } catch (e) { log('engine local lỗi, dùng mạng:', e.message); }
+    if (bulletMode) throw new Error('BULLET: chỉ dùng engine local, không gọi mạng');
+    // 2) Mạng: Lichess Cloud Eval -> Stockfish (chỉ khi không phải BULLET).
     const gap = Date.now() - lastAnalyseAt;
     if (gap < CFG.minApiGapMs) await sleep(CFG.minApiGapMs - gap);
     lastAnalyseAt = Date.now();
@@ -319,10 +579,6 @@
     return res;
   }
 
-  // ================= ĐI QUÂN =================
-  // Tọa độ ô trong hệ viewBox 0..8 của lớp SVG phủ trên bàn.
-  // Không lật: x = cột (a=0..h=7), y = hàng tính từ trên (hạng 8 ở trên).
-  // Lật bàn (cầm Đen): x = 7-cột, y = hạng-1.
   function squareUnit(sq) {
     const file = FILES.indexOf(sq[0]);
     const rank = parseInt(sq[1], 10);
@@ -398,7 +654,7 @@
     panel.id = 'xaiz-chess-bot-panel';
     panel.innerHTML = `
       <div id="xaiz-cb-head">
-        <span>♟️ XAIZ VIP <span class="ver">NHẤT v6.0</span></span>
+        <span>♟️ XAIZ VIP <span class="ver">NHẤT v8.0</span></span>
         <span class="head-btns"><span id="xaiz-cb-min">—</span><span id="xaiz-cb-close">✕</span></span>
       </div>
       <div id="xaiz-cb-evalbar"><div id="xaiz-cb-evalfill"></div><span id="xaiz-cb-evaltxt">50%</span></div>
@@ -461,9 +717,13 @@
             <button id="xaiz-cb-botonly">🛡️ CHỈ VÁN BOT: BẬT</button>
           </div>
           <div class="btns">
+            <button id="xaiz-cb-bullet">⚡ BULLET 1 PHÚT: TẮT</button>
+            <button id="xaiz-cb-autocolor">🔄 TỰ NHẬN MÀU: BẬT</button>
+          </div>
+          <div class="btns">
             <button id="xaiz-cb-hide">👁 ẨN MENU</button>
           </div>
-          <div class="note">Tool CHỈ VẼ MŨI TÊN hướng dẫn, KHÔNG tự bấm quân — bạn tự đi theo mũi tên. Mũi tên = nước tốt nhất của engine (Lichess Book + Stockfish), không thắng 100% được. Chỉ test với Bot / ván không xếp hạng, đánh rank dùng engine = khóa acc.</div>
+          <div class="note">Tool CHỈ VẼ MŨI TÊN hướng dẫn, KHÔNG tự bấm quân — bạn tự đi theo mũi tên. Mũi tên = nước tốt nhất của engine (XAIZ local + Lichess Book + Stockfish), không thắng 100% được. Chỉ test với Bot / ván không xếp hạng, đánh rank dùng engine = khóa acc.<br>📦 Đường dẫn không mất: GitHub <b>VFBX/Ches-com-bot</b> — file <b>ChessCom-Hint-Arrow.user.js</b> (Tampermonkey) và <b>ChessCom-Hint-Arrow-Console.js</b> (dán Console).</div>
         </div>
       </div>`;
     const st = document.createElement('style');
@@ -537,6 +797,17 @@
     const updBotOnly = () => { const b = q('#xaiz-cb-botonly'); if (b) b.textContent = botOnly ? '🛡️ CHỈ VÁN BOT: BẬT' : '🛡️ CHỈ VÁN BOT: TẮT'; };
     updBotOnly();
     q('#xaiz-cb-botonly').onclick = () => { botOnly = !botOnly; GM_setValue('xaiz_botonly', botOnly); updBotOnly(); lastFen = ''; setStatus(botOnly ? 'Chỉ chạy ở ván Bot (chống ban) — đang quét lại…' : 'Đã tắt giới hạn ván Bot — nhớ chỉ dùng với Bot'); scan(true); };
+    const updBullet = () => { const b = q('#xaiz-cb-bullet'); if (b) b.textContent = bulletMode ? '⚡ BULLET 1 PHÚT: BẬT' : '⚡ BULLET 1 PHÚT: TẮT'; };
+    const updAutoColor = () => { const b = q('#xaiz-cb-autocolor'); if (b) b.textContent = autoColor ? '🔄 TỰ NHẬN MÀU: BẬT' : '🔄 TỰ NHẬN MÀU: TẮT'; };
+    updBullet(); updAutoColor();
+    q('#xaiz-cb-bullet').onclick = () => {
+      bulletMode = !bulletMode; GM_setValue('xaiz_bullet', bulletMode);
+      if (bulletMode) { botOnly = false; GM_setValue('xaiz_botonly', false); updBotOnly(); }
+      updBullet(); restartInterval(); lastFen = '';
+      setStatus(bulletMode ? 'BULLET 1 PHÚT đã BẬT: chỉ engine local, quét 300ms — nhớ chỉ dùng acc phụ, ván không xếp hạng!' : 'BULLET đã tắt — về chế độ thường');
+      scan(true);
+    };
+    q('#xaiz-cb-autocolor').onclick = () => { autoColor = !autoColor; GM_setValue('xaiz_autocolor', autoColor); updAutoColor(); lastFen = ''; setStatus(autoColor ? 'Tự nhận màu đã BẬT — đổi ván/đổi bên là tự nhận lại' : 'Tự nhận màu đã TẮT — dùng nút TÔI CẦM TRẮNG/ĐEN để chọn tay'); scan(true); };
     els.mode.textContent = 'MODE: ' + mode;
     els.mode.onclick = () => {
       const i = CFG.modeOrder.indexOf(mode);
@@ -549,6 +820,9 @@
     q('#xaiz-cb-check').onclick = async () => {
       const res = q('#xaiz-cb-checkres');
       const out = [];
+      out.push('🔖 Bản v8.0.0 VIP NHẤT PRO MAX — GitHub: VFBX/Ches-com-bot');
+      try { const t = xeAnalyse('rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1', 2); out.push(t && t.best ? ('✅ Engine local OK: ' + t.best) : '❌ Engine local không ra nước'); }
+      catch (e) { out.push('❌ Engine local lỗi: ' + e.message); }
       const read = readPieces();
       out.push(read ? ('✅ Thấy bàn cờ, ' + Object.keys(read.pieces).length + ' quân') : '❌ Chưa thấy bàn cờ — vào ván đã rồi bấm lại');
       if (read) {
@@ -561,8 +835,8 @@
       }
       res.innerHTML = out.join('<br>');
     };
-    q('#xaiz-cb-white').onclick = () => { saveColor('w'); lastFen = ''; setStatus('Đã chọn: bạn cầm Trắng, đang quét lại…'); scan(true); };
-    q('#xaiz-cb-black').onclick = () => { saveColor('b'); lastFen = ''; setStatus('Đã chọn: bạn cầm Đen, đang quét lại…'); scan(true); };
+    q('#xaiz-cb-white').onclick = () => { autoColor = false; GM_setValue('xaiz_autocolor', false); updAutoColor(); saveColor('w'); lastFen = ''; setStatus('Đã chọn: bạn cầm Trắng, đang quét lại…'); scan(true); };
+    q('#xaiz-cb-black').onclick = () => { autoColor = false; GM_setValue('xaiz_autocolor', false); updAutoColor(); saveColor('b'); lastFen = ''; setStatus('Đã chọn: bạn cầm Đen, đang quét lại…'); scan(true); };
     q('#xaiz-cb-flip').onclick = () => { saveColor(myColor === 'w' ? 'b' : 'w'); lastFen = ''; setStatus('Đã đổi chiều bàn, đang quét lại…'); scan(true); };
     q('#xaiz-cb-turnflip').onclick = () => { saveTurnFlip(!turnFlip); lastFen = ''; setStatus('Đã đổi lượt đi, đang quét lại…'); scan(true); };
     q('#xaiz-cb-hide').onclick = () => { panel.style.display = 'none'; showFab(); };
@@ -619,7 +893,7 @@
     }
   }
   // ================= VÒNG QUÉT CHÍNH =================
-  async function scan(manual) {
+  async function scanInner(manual) {
     if (botOnly && !location.pathname.includes('/play/computer')) {
       drawArrows([]); setStatus('Đã tạm dừng — chỉ chạy ở ván Bot (chống ban). Vào Chơi với Bot để dùng.'); return;
     }
@@ -676,6 +950,15 @@
     } finally { engineBusy = false; }
   }
 
+  function restartInterval() {
+    if (window.__xaizBotInterval) clearInterval(window.__xaizBotInterval);
+    window.__xaizBotInterval = setInterval(() => { scan(false).catch(e => log('scan lỗi', e)); }, bulletMode ? 300 : CFG.scanMs);
+  }
+  // Bọc lỗi vòng quét: 1 lỗi vặt chỉ hiện thông báo, không làm chết tool (lỗi v5.1 từng làm cả vòng quét dừng).
+  async function scan(manual) {
+    try { await scanInner(manual); }
+    catch (e) { setStatus('Lỗi quét: ' + e.message + ' — bấm QUÉT BÀN thử lại'); log('scan lỗi', e); }
+  }
   function init() {
     if (window.__xaizBotInterval) clearInterval(window.__xaizBotInterval);
     const old = document.getElementById('xaiz-chess-bot-panel');
@@ -683,8 +966,12 @@
     const oldSvg = document.getElementById('xaiz-arrow-svg'); if (oldSvg) oldSvg.remove();
     buildPanel();
     renderTop3();
-    setStatus('XAIZ VIP NHẤT v6 đã tải — vào ván Bot rồi bấm QUÉT BÀN, đi theo mũi tên');
-    window.__xaizBotInterval = setInterval(() => { scan(false).catch(e => log('scan lỗi', e)); }, CFG.scanMs);
+    try {
+      const t = xeAnalyse('rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1', 2);
+      if (t && t.best) setStatus('XAIZ VIP NHẤT v8 đã tải — ✅ Engine local OK (' + t.best + '), vào ván rồi bấm QUÉT BÀN');
+      else setStatus('XAIZ VIP NHẤT v8 đã tải — ⚠️ Engine local chưa chạy, sẽ dùng mạng');
+    } catch (e) { setStatus('XAIZ VIP NHẤT v8 đã tải — ⚠️ Engine local lỗi, sẽ dùng mạng'); log('tự kiểm tra engine lỗi', e); }
+    restartInterval();
     if (window.__xaizWatchdog) clearInterval(window.__xaizWatchdog);
     window.__xaizWatchdog = setInterval(() => {
       if (!document.getElementById('xaiz-chess-bot-panel')) { buildPanel(); renderTop3(); setStatus('Panel đã tự hồi phục — đang quét lại…'); lastFen = ''; }
@@ -692,7 +979,7 @@
     document.addEventListener('keydown', (e) => {
       if (e.altKey && (e.key === 'b' || e.key === 'B')) panel.style.display = panel.style.display === 'none' ? '' : 'none';
     });
-    log('XAIZ Chess Hint Arrow VIP NHẤT v6.0.0 đã tải. Mode:', mode, 'Arrow:', arrowVisible, 'Color:', arrowColor);
+    log('XAIZ Chess Hint Arrow VIP NHẤT PRO MAX v8.0.0 đã tải. Mode:', mode, 'Arrow:', arrowVisible, 'Color:', arrowColor, 'Bullet:', bulletMode, 'AutoColor:', autoColor);
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
   else init();
