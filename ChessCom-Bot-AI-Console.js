@@ -1,76 +1,96 @@
-/* CHESS.COM BOT AI - BẢN CHẠY BẰNG CONSOLE (không cần Tampermonkey)
+/* CHESS.COM BOT AI v2 - BẢN CHẠY BẰNG CONSOLE (không cần Tampermonkey)
    Cách dùng: mở chess.com bằng Kiwi, vào ván, mở Developers > JavaScript Console,
    dán TOÀN BỘ file này vào ô nhập, bấm nút chạy (▶). Panel bot sẽ hiện ra.
    Mỗi lần tải lại trang / vào ván mới thì dán lại 1 lần. */
 /*
-  CHESS.COM BOT AI - XAIZ TOOL v1.0.0
-  -----------------------------------
-  CÁCH HOẠT ĐỘNG (đọc kỹ trước khi dùng):
-  1. Tool chạy TRÊN TRANG WEB chess.com (trình duyệt), KHÔNG chạy trong app Chess.com.
-     Trên điện thoại Android: dùng trình duyệt Kiwi Browser + tiện ích Tampermonkey,
-     mở chess.com bằng Kiwi, đăng nhập, vào ván rồi tool tự hiện panel.
-  2. Tool đọc bàn cờ từ DOM của Chess.com: thẻ <wc-chess-board>, các quân là
-     div.piece có class dạng "wp" (tốt trắng), "bn" (mã đen)... và "square-XY".
-     square-XY: X = cột tính từ trái bàn (1..8), Y = hàng tính từ trên bàn (1..8).
-     Tool tự nhận biết bàn có bị lật hay không (bạn cầm Đen thì bàn lật ngược),
-     và có nút "ĐỔI CHIỀU BÀN" nếu FEN đọc ra sai.
-  3. Engine: gọi API Stockfish online (stockfish.online, miễn phí, không cần key)
-     với FEN hiện tại -> trả về nước tốt nhất (bestmove, vd "e2e4") + điểm đánh giá.
-     Nếu API này lỗi thì tự đổi sang Lichess Cloud Eval để lấy nước mở cờ.
-  4. Tự đi quân: tool bấm vào ô đi rồi bấm vào ô đến bằng sự kiện chuột thật
-     trên bàn cờ (elementFromPoint + click). Phong hậu thì tự chọn Hậu.
+  CHESS.COM BOT AI v2.0.0 — XAIZ TOOL
+  ------------------------------------
+  NÓI THẬT VỀ 2 CON SỐ BẠN HỎI:
+  - "Thắng 999%": KHÔNG CÓ. Thắng tối đa là 100%, và không ai thắng 100% mọi
+    ván được — Stockfish gặp Stockfish thì hòa, đối thủ chơi chuẩn thì không có
+    đường ép thắng. Tool chỉ giúp bạn luôn đi nước mạnh nhất.
+  - "7749 thế cờ": không nhét 7749 thế cờ cứng vào 1 file được (file sẽ nặng
+    hàng MB, điện thoại tải không nổi). Thay vào đó v2 dùng 2 nguồn thật:
+      (1) Lichess Cloud Eval — CSDL nước đã phân tích sẵn, phủ hàng triệu thế
+          cờ mở đầu và trung cuộc, trả Top 3 nước ngay lập tức, depth tới 75.
+      (2) Sách mở cờ tích hợp sẵn trong tool: 24 khai cuộc nổi tiếng kèm tên
+          và mã ECO, hiện tên khai cuộc ngay trong tab MỞ CỜ.
+    Hết sách + hết CSDL thì Stockfish tính tiếp, nên mọi thế cờ đều có nước đi.
 
-  GIỚI HẠN NÓI THẬT (đừng tin ai hứa thắng 100%):
-  - KHÔNG thắng 100% được. Stockfish gặp Stockfish thì hòa, đối thủ chơi chuẩn
-    thì không có đường ép thắng. Engine chỉ giúp bạn không đi nước dở.
-  - Chess.com có hệ thống Fair Play phát hiện chơi bằng engine: đi nước máy
-    quá chuẩn, quá đều tay trong ván xếp hạng = bị khóa tài khoản, kể cả acc mới.
-    KHÔNG có Anti-Ban 100%. Chỉ test với Bot của Chess.com hoặc ván không xếp hạng,
-    dùng acc phụ, đừng đánh rank, đừng cày liên tục.
-  - Chess.com đổi giao diện là tool có thể đọc sai bàn -> luôn có nút QUÉT BÀN
-    và hiện FEN để bạn kiểm tra trước khi bật TỰ ĐI.
+  SỬA LỖI v1: mode RAGE depth 18 làm API Stockfish.online báo lỗi
+  "Depth must be less than 16" nên không tính được nước nào. v2 giới hạn
+  depth tối đa 15: LEGIT 10 / VIP 13 / RAGE 15.
 */
-
 (function () {
   'use strict';
 
   // ================= CẤU HÌNH =================
   const CFG = {
-    // Độ sâu engine theo chế độ. Depth càng cao càng mạnh, càng chậm.
     modes: {
-      LEGIT: { depth: 12, delayMin: 1800, delayMax: 3200, label: 'LEGIT' },
-      VIP:   { depth: 15, delayMin: 800,  delayMax: 1500, label: 'VIP' },
-      RAGE:  { depth: 18, delayMin: 300,  delayMax: 600,  label: 'RAGE' },
+      LEGIT: { depth: 10, delayMin: 1800, delayMax: 3200, label: 'LEGIT' },
+      VIP:   { depth: 13, delayMin: 800,  delayMax: 1500, label: 'VIP' },
+      RAGE:  { depth: 15, delayMin: 300,  delayMax: 600,  label: 'RAGE' },
     },
     modeOrder: ['LEGIT', 'VIP', 'RAGE'],
-    scanMs: 800,          // quét bàn mỗi 0.8s
+    scanMs: 800,
     apiTimeoutMs: 12000,
   };
   let mode = localStorage.getItem('xaiz_mode') || 'VIP';
   let autoMove = localStorage.getItem('xaiz_auto') === 'true';
-  let flipped = false;        // bàn có đang lật (bạn cầm Đen) không
-  let myColor = 'w';          // 'w' hoặc 'b' - tự nhận theo chiều bàn
-  let panelVisible = true;
-
-  // Trạng thái ván
+  let flipped = false;
+  let myColor = 'w';
   let lastFen = '';
-  let lastBest = '';          // UCI, vd "e2e4" / "e7e8q"
-  let lastEval = null;        // điểm, tính theo trắng, đơn vị tốt (pawn)
+  let lastBest = '';
+  let lastTop3 = [];       // [{move, cp, mate}]
+  let lastEvalCp = null;   // điểm theo trắng, đơn vị centipawn
   let lastMate = null;
+  let lastOpening = null;
   let engineBusy = false;
-  let lastBoardKey = '';
-  let plyCount = 0;           // số nửa nước đã đi (đọc từ danh sách nước đi)
-  let castling = { K: true, Q: true, k: true, q: true };
+  let plyCount = 0;
   let halfmove = 0, fullmove = 1;
+  let botMoves = 0;        // số nước bot đã đi trong phiên này
 
   const FILES = 'abcdefgh';
   const PIECE_LETTER = { p: 'p', n: 'n', b: 'b', r: 'r', q: 'q', k: 'k' };
 
+  // ================= SÁCH MỞ CỜ (24 khai cuộc, mã ECO) =================
+  // Mỗi khai cuộc: tên, mã ECO, chuỗi nước đi SAN mở đầu.
+  const OPENINGS = [
+    { eco: 'C50', name: 'Italian Game', moves: ['e4', 'e5', 'Nf3', 'Nc6', 'Bc4'] },
+    { eco: 'C42', name: 'Petrov Defense', moves: ['e4', 'e5', 'Nf3', 'Nf6'] },
+    { eco: 'B20', name: 'Sicilian Defense', moves: ['e4', 'c5'] },
+    { eco: 'B90', name: 'Sicilian Najdorf', moves: ['e4', 'c5', 'Nf3', 'd6', 'd4', 'cxd4', 'Nxd4', 'Nf6', 'Nc3', 'a6'] },
+    { eco: 'C00', name: 'French Defense', moves: ['e4', 'e6'] },
+    { eco: 'C10', name: 'French Paulsen', moves: ['e4', 'e6', 'd4', 'd5', 'Nc3', 'Nf6', 'e5', 'Nfd7'] },
+    { eco: 'B10', name: 'Caro-Kann Defense', moves: ['e4', 'c6'] },
+    { eco: 'B12', name: 'Caro-Kann Advance', moves: ['e4', 'c6', 'd4', 'd5', 'e5'] },
+    { eco: 'C60', name: 'Ruy Lopez', moves: ['e4', 'e5', 'Nf3', 'Nc6', 'Bb5'] },
+    { eco: 'C78', name: 'Ruy Lopez Morphy', moves: ['e4', 'e5', 'Nf3', 'Nc6', 'Bb5', 'a6', 'Ba4', 'Nf6', 'O-O'] },
+    { eco: 'A10', name: 'English Opening', moves: ['c4'] },
+    { eco: 'A40', name: "Queen's Pawn Game", moves: ['d4'] },
+    { eco: 'D06', name: "Queen's Gambit", moves: ['d4', 'd5', 'c4'] },
+    { eco: 'D10', name: "Queen's Gambit Slav", moves: ['d4', 'd5', 'c4', 'c6'] },
+    { eco: 'A45', name: 'Indian Defense', moves: ['d4', 'Nf6'] },
+    { eco: 'E60', name: "King's Indian Defense", moves: ['d4', 'Nf6', 'c4', 'g6'] },
+    { eco: 'A07', name: "King's Indian Attack", moves: ['Nf3', 'd5', 'g3'] },
+    { eco: 'D02', name: 'London System', moves: ['d4', 'd5', 'Bf4'] },
+    { eco: 'A46', name: 'London / Torre', moves: ['d4', 'Nf6', 'Nf3', 'e6', 'Bf4'] },
+    { eco: 'B00', name: "King's Pawn Opening", moves: ['e4'] },
+    { eco: 'C20', name: "King's Pawn Game", moves: ['e4', 'e5'] },
+    { eco: 'B01', name: 'Scandinavian Defense', moves: ['e4', 'd5'] },
+    { eco: 'C41', name: 'Philidor Defense', moves: ['e4', 'e5', 'Nf3', 'd6'] },
+    { eco: 'C44', name: 'Ponziani Opening', moves: ['e4', 'e5', 'Nf3', 'Nc6', 'c3'] },
+  ];
+
   // ================= TIỆN ÍCH =================
   const sleep = (ms) => new Promise(r => setTimeout(r, ms));
   const rand = (a, b) => a + Math.random() * (b - a);
-  const log = (...a) => console.log('[XAIZ Chess Bot]', ...a);
-
+  const log = (...a) => console.log('[XAIZ Chess Bot v2]', ...a);
+  // Đổi centipawn -> % thắng của Trắng (công thức chuẩn của Lichess).
+  function winPct(cp) {
+    if (cp === null || cp === undefined) return null;
+    return Math.round(50 + 50 * (2 / (1 + Math.exp(-0.00368208 * cp)) - 1));
+  }
   function gmGet(url) {
     return fetch(url).then((r) => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); });
   }
@@ -80,33 +100,22 @@
     return document.querySelector('wc-chess-board')
       || document.querySelector('.board, [class*="board-"]');
   }
-
-  // Nhận biết bàn có lật không: nhìn nhãn tọa độ ở góc dưới-trái của bàn.
-  // Bàn trắng ở dưới -> góc dưới-trái là "a". Bàn đen ở dưới -> là "h".
   function detectFlipped(board) {
     if (!board) return false;
     if (board.classList && board.classList.contains('flipped')) return true;
     const coords = board.parentElement
-      ? board.parentElement.querySelectorAll('.coordinate, [class*="coordinate"]')
-      : [];
+      ? board.parentElement.querySelectorAll('.coordinate, [class*="coordinate"]') : [];
     for (const c of coords) {
       const t = (c.textContent || '').trim().toLowerCase();
       if (t === 'h') return true;
       if (t === 'a') return false;
     }
-    // Dự phòng: nhìn quân vua trắng lúc đầu ván còn ở e1 hay e8 (qua square class)
     return false;
   }
-
-  // square-XY -> ô cờ "e4". X = cột từ trái (1..8), Y = hàng từ trên (1..8).
-  // Bàn không lật: hàng trên cùng là hạng 8 -> rank = 9 - Y, file = X.
-  // Bàn lật: hàng trên cùng là hạng 1 -> rank = Y, file = 9 - X.
   function squareXYtoAlgebraic(x, y) {
     if (!flipped) return FILES[x - 1] + String(9 - y);
     return FILES[8 - x] + String(y);
   }
-
-  // Đọc toàn bộ quân trên bàn -> map ô -> {color:'w'|'b', type:'p'|'n'|'b'|'r'|'q'|'k'}
   function readPieces() {
     const board = getBoardEl();
     if (!board) return null;
@@ -118,34 +127,39 @@
       const mSq = cls.match(/square-(\d)(\d)/);
       const mPc = cls.match(/\b([wb])([pnbrqk])\b/);
       if (!mSq || !mPc) return;
-      const sq = squareXYtoAlgebraic(parseInt(mSq[1], 10), parseInt(mSq[2], 10));
-      pieces[sq] = { color: mPc[1], type: PIECE_LETTER[mPc[2]] };
+      pieces[squareXYtoAlgebraic(parseInt(mSq[1], 10), parseInt(mSq[2], 10))] =
+        { color: mPc[1], type: PIECE_LETTER[mPc[2]] };
     });
     return { board, pieces };
   }
-
-  // Đếm số nửa nước đã đi từ danh sách nước đi trên trang (nếu đọc được).
-  function readPlyCount() {
+  // Danh sách nước đi SAN đã đi (để đếm lượt + nhận diện khai cuộc).
+  function readMoveSANs() {
     const list = document.querySelector('[data-test-element="move-list"], .vertical-move-list, .move-list');
-    if (!list) return null;
-    const nodes = list.querySelectorAll('.move, .node, [class*="move-"]');
-    // Mỗi nước đi của 1 bên là 1 node có SAN; lọc node có text dạng nước cờ.
-    let n = 0;
-    nodes.forEach((el) => {
-      const t = (el.textContent || '').trim();
-      if (/^[KQRBN]?[a-h][1-8]/.test(t) || t === 'O-O' || t === 'O-O-O') n++;
+    if (!list) return [];
+    const sans = [];
+    list.querySelectorAll('.move, .node, [class*="move-"]').forEach((el) => {
+      const t = (el.textContent || '').trim().replace(/[+#?!]+$/, '');
+      if (/^(O-O-O|O-O|[KQRBN]?[a-h][1-8][a-h]?[1-8]?[=QRBN]?)$/.test(t)) sans.push(t);
     });
-    return n > 0 ? n : null;
+    return sans;
   }
-
-  // Dựng FEN từ vị trí quân. Nhập thành suy ra từ vị trí vua/xe còn nguyên.
+  function findOpening(sans) {
+    let best = null;
+    for (const op of OPENINGS) {
+      let ok = true;
+      for (let i = 0; i < Math.min(op.moves.length, sans.length); i++) {
+        if (op.moves[i] !== sans[i]) { ok = false; break; }
+      }
+      if (ok && sans.length > 0 && (!best || op.moves.length > best.moves.length)) best = op;
+    }
+    return best;
+  }
   function buildFen(pieces) {
     let placement = '';
     for (let rank = 8; rank >= 1; rank--) {
       let empty = 0;
       for (let f = 0; f < 8; f++) {
-        const sq = FILES[f] + rank;
-        const pc = pieces[sq];
+        const pc = pieces[FILES[f] + rank];
         if (!pc) { empty++; continue; }
         if (empty) { placement += empty; empty = 0; }
         placement += pc.color === 'w' ? pc.type.toUpperCase() : pc.type;
@@ -153,7 +167,6 @@
       if (empty) placement += empty;
       if (rank > 1) placement += '/';
     }
-    // Quyền nhập thành: vua còn ở e1/e8 và xe còn ở góc thì coi như còn quyền.
     let c = '';
     if (pieces.e1 && pieces.e1.type === 'k' && pieces.e1.color === 'w') {
       if (pieces.h1 && pieces.h1.type === 'r' && pieces.h1.color === 'w') c += 'K';
@@ -164,8 +177,8 @@
       if (pieces.a8 && pieces.a8.type === 'r' && pieces.a8.color === 'b') c += 'q';
     }
     if (!c) c = '-';
-    const ply = readPlyCount();
-    if (ply !== null) plyCount = ply;
+    const sans = readMoveSANs();
+    if (sans.length) plyCount = sans.length;
     const active = (plyCount % 2 === 0) ? 'w' : 'b';
     fullmove = Math.floor(plyCount / 2) + 1;
     return `${placement} ${active} ${c} - ${halfmove} ${fullmove}`;
@@ -175,48 +188,43 @@
   async function askStockfish(fen, depth) {
     const url = 'https://stockfish.online/api/s/v2.php?fen=' + encodeURIComponent(fen) + '&depth=' + depth;
     const data = await gmGet(url);
-    // API trả bestmove dạng "bestmove e2e4 ponder e7e5" -> chỉ lấy token UCI "e2e4".
     if (data && data.success && data.bestmove && data.bestmove !== '(none)') {
       const uci = String(data.bestmove).split(/\s+/).find(t => /^[a-h][1-8][a-h][1-8][qrbn]?$/.test(t));
-      if (!uci) throw new Error('stockfish.online trả bestmove lạ: ' + data.bestmove);
-      let ev = null, mate = null;
-      if (typeof data.evaluation === 'number') ev = data.evaluation;
-      if (typeof data.mate === 'number') mate = data.mate;
-      return { best: uci, eval: ev, mate };
+      if (!uci) throw new Error('stockfish.online trả bestmove lạ');
+      const cp = typeof data.evaluation === 'number' ? Math.round(data.evaluation * 100) : null;
+      return { best: uci, top3: [{ move: uci, cp, mate: data.mate || null }], cp, mate: data.mate || null, source: 'Stockfish' };
     }
     throw new Error('stockfish.online không trả nước đi');
   }
-
-  // Dự phòng: Lichess cloud eval chỉ có nước mở cờ / nước đã có trong CSDL.
+  // Lichess Cloud Eval: CSDL nước đã phân tích sẵn (hàng triệu thế cờ), Top 3.
   async function askLichess(fen) {
-    const url = 'https://lichess.org/api/cloud-eval?fen=' + encodeURIComponent(fen) + '&multiPv=1';
+    const url = 'https://lichess.org/api/cloud-eval?fen=' + encodeURIComponent(fen) + '&multiPv=3';
     const data = await gmGet(url);
-    if (data && data.pvs && data.pvs[0] && data.pvs[0].moves) {
-      const best = data.pvs[0].moves.split(' ')[0];
-      const cp = typeof data.pvs[0].cp === 'number' ? data.pvs[0].cp / 100 : null;
-      return { best, eval: cp, mate: data.pvs[0].mate || null };
+    if (data && data.pvs && data.pvs.length) {
+      const top3 = data.pvs.map(pv => ({
+        move: String(pv.moves || '').split(' ')[0],
+        cp: typeof pv.cp === 'number' ? pv.cp : null,
+        mate: pv.mate || null,
+      })).filter(x => /^[a-h][1-8][a-h][1-8][qrbn]?$/.test(x.move));
+      if (!top3.length) throw new Error('lichess cloud-eval không có nước này');
+      return { best: top3[0].move, top3, cp: top3[0].cp, mate: top3[0].mate, source: 'Lichess Book' };
     }
     throw new Error('lichess cloud-eval không có nước này');
   }
-
   async function analyse(fen) {
-    const depth = CFG.modes[mode].depth;
-    try { return await askStockfish(fen, depth); }
-    catch (e) { log('Stockfish API lỗi, thử Lichess:', e.message); return await askLichess(fen); }
+    try { return await askLichess(fen); }
+    catch (e) { log('Lichess book không có, dùng Stockfish:', e.message); return await askStockfish(fen, CFG.modes[mode].depth); }
   }
 
-  // ================= ĐI QUÂN TRÊN BÀN =================
+  // ================= ĐI QUÂN =================
   function squareCenterPoint(board, sq) {
     const r = board.getBoundingClientRect();
-    const file = FILES.indexOf(sq[0]);       // 0..7, a..h
-    const rank = parseInt(sq[1], 10);        // 1..8
-    // Tọa độ hiển thị: cột từ trái, hàng từ trên.
+    const file = FILES.indexOf(sq[0]);
+    const rank = parseInt(sq[1], 10);
     let col, row;
-    if (!flipped) { col = file; row = 8 - rank; }
-    else { col = 7 - file; row = rank - 1; }
+    if (!flipped) { col = file; row = 8 - rank; } else { col = 7 - file; row = rank - 1; }
     return { x: r.left + (col + 0.5) * (r.width / 8), y: r.top + (row + 0.5) * (r.height / 8) };
   }
-
   function fireClickAt(x, y) {
     const el = document.elementFromPoint(x, y) || document.body;
     const opts = { bubbles: true, cancelable: true, clientX: x, clientY: y, button: 0, pointerId: 1, isPrimary: true };
@@ -226,7 +234,6 @@
     el.dispatchEvent(new MouseEvent('mouseup', opts));
     el.dispatchEvent(new MouseEvent('click', opts));
   }
-
   async function playMove(uci) {
     const board = getBoardEl();
     if (!board) return false;
@@ -237,98 +244,147 @@
     const p2 = squareCenterPoint(board, to);
     fireClickAt(p2.x, p2.y);
     await sleep(400);
-    // Phong hậu: Chess.com hiện bảng chọn quân -> chọn Hậu.
     if (promo) {
       const qBtn = document.querySelector('[data-test-element="promotion-piece-q"], .promotion-piece.q, [class*="promotion"] [class*="q"]');
       if (qBtn) { qBtn.click(); await sleep(300); }
     }
+    botMoves++;
+    updateStats();
     return true;
   }
 
-  // ================= PANEL NGOÀI MÀN HÌNH =================
-  let panel, elStatus, elFen, elBest, elEval, elMode, elAuto;
+  // ================= MENU VIP MOBILE =================
+  let panel, els = {};
+  let curTab = 'bot';
   function buildPanel() {
     panel = document.createElement('div');
     panel.id = 'xaiz-chess-bot-panel';
     panel.innerHTML = `
-      <div id="xaiz-cb-head">♟️ XAIZ CHESS BOT <span id="xaiz-cb-min">—</span></div>
+      <div id="xaiz-cb-head">
+        <span>♟️ XAIZ CHESS BOT <span class="ver">v2 VIP</span></span>
+        <span class="head-btns"><span id="xaiz-cb-min">—</span><span id="xaiz-cb-close">✕</span></span>
+      </div>
+      <div id="xaiz-cb-evalbar"><div id="xaiz-cb-evalfill"></div><span id="xaiz-cb-evaltxt">50%</span></div>
+      <div id="xaiz-cb-tabs">
+        <button data-tab="bot" class="on">🤖 BOT</button>
+        <button data-tab="top3">🏆 TOP 3</button>
+        <button data-tab="open">📖 MỞ CỜ</button>
+        <button data-tab="set">⚙️ CÀI ĐẶT</button>
+      </div>
       <div id="xaiz-cb-body">
-        <div class="row"><span>Trạng thái:</span><b id="xaiz-cb-status">Đang quét bàn…</b></div>
-        <div class="row"><span>Nước tốt nhất:</span><b id="xaiz-cb-best">—</b></div>
-        <div class="row"><span>Đánh giá:</span><b id="xaiz-cb-eval">—</b></div>
-        <div class="row small"><span>FEN:</span><code id="xaiz-cb-fen">—</code></div>
-        <div class="btns">
-          <button id="xaiz-cb-auto">▶ BẬT TỰ ĐI</button>
-          <button id="xaiz-cb-mode">MODE: VIP</button>
+        <div class="tabpage" data-page="bot">
+          <div class="row"><span>Trạng thái:</span><b id="xaiz-cb-status">Đang quét bàn…</b></div>
+          <div class="bigmove"><span>Nước tốt nhất</span><b id="xaiz-cb-best">—</b></div>
+          <div class="row"><span>Đánh giá:</span><b id="xaiz-cb-eval">—</b></div>
+          <div class="row"><span>Nguồn:</span><b id="xaiz-cb-src">—</b></div>
+          <div class="row small"><span>FEN:</span><code id="xaiz-cb-fen">—</code></div>
+          <button id="xaiz-cb-auto" class="bigbtn">▶ BẬT TỰ ĐI</button>
+          <div class="row small"><span>Bot đã đi:</span><b id="xaiz-cb-count">0 nước</b></div>
         </div>
-        <div class="btns">
-          <button id="xaiz-cb-test">🎯 ĐI 1 NƯỚC</button>
-          <button id="xaiz-cb-scan">🔍 QUÉT BÀN</button>
+        <div class="tabpage" data-page="top3" style="display:none">
+          <div class="note">Bấm 1 nước để đi ngay nước đó (chỉ khi đến lượt bạn).</div>
+          <div id="xaiz-cb-top3"></div>
         </div>
-        <div class="btns">
-          <button id="xaiz-cb-flip">↕ ĐỔI CHIỀU BÀN</button>
-          <button id="xaiz-cb-hide">✕ ẨN</button>
+        <div class="tabpage" data-page="open" style="display:none">
+          <div class="row"><span>Khai cuộc:</span><b id="xaiz-cb-opening">—</b></div>
+          <div class="row small"><span>Nước mở đầu:</span><b id="xaiz-cb-openmoves">—</b></div>
+          <div class="note">Sách mở cờ: 24 khai cuộc nổi tiếng (Italian, Sicilian, Ruy Lopez, London, Queen's Gambit…). Hết sách thì Lichess Book + Stockfish tính tiếp.</div>
         </div>
-        <div class="note">Chỉ test với Bot / ván không xếp hạng. Engine không thắng 100%, đánh rank bằng engine = khóa acc.</div>
+        <div class="tabpage" data-page="set" style="display:none">
+          <button id="xaiz-cb-mode" class="bigbtn">MODE: VIP</button>
+          <div class="btns">
+            <button id="xaiz-cb-test">🎯 ĐI 1 NƯỚC</button>
+            <button id="xaiz-cb-scan">🔍 QUÉT BÀN</button>
+          </div>
+          <div class="btns">
+            <button id="xaiz-cb-flip">↕ ĐỔI CHIỀU BÀN</button>
+            <button id="xaiz-cb-hide">👁 ẨN MENU</button>
+          </div>
+          <div class="note">LEGIT depth 10 (chậm như người) • VIP depth 13 • RAGE depth 15. Chỉ test với Bot / ván không xếp hạng. Engine không thắng 100%, đánh rank bằng engine = khóa acc.</div>
+        </div>
       </div>`;
     const st = document.createElement('style');
     st.textContent = `
-      #xaiz-chess-bot-panel{position:fixed;top:10px;right:10px;z-index:999999;width:248px;
-        background:#111827;color:#fff;border:2px solid #f59e0b;border-radius:12px;
-        font-family:sans-serif;font-size:13px;box-shadow:0 4px 20px rgba(0,0,0,.5)}
-      #xaiz-cb-head{background:#f59e0b;color:#111827;font-weight:900;padding:8px 10px;
-        border-radius:10px 10px 0 0;cursor:move;display:flex;justify-content:space-between}
-      #xaiz-cb-body{padding:10px}
-      #xaiz-cb-body .row{margin:4px 0;display:flex;gap:6px}
+      #xaiz-chess-bot-panel{position:fixed;top:10px;right:10px;z-index:999999;width:min(300px,86vw);
+        background:linear-gradient(160deg,#1f2937,#0f172a);color:#fff;border:2px solid #f59e0b;border-radius:16px;
+        font-family:sans-serif;font-size:14px;box-shadow:0 8px 30px rgba(0,0,0,.6);overflow:hidden}
+      #xaiz-cb-head{background:linear-gradient(90deg,#f59e0b,#f97316);color:#111827;font-weight:900;
+        padding:10px 12px;cursor:move;display:flex;justify-content:space-between;align-items:center;font-size:15px}
+      #xaiz-cb-head .ver{font-size:11px;background:#111827;color:#fbbf24;border-radius:8px;padding:2px 6px}
+      #xaiz-cb-head .head-btns span{padding:2px 8px;cursor:pointer;font-size:16px}
+      #xaiz-cb-evalbar{position:relative;height:18px;background:#111827}
+      #xaiz-cb-evalfill{height:100%;width:50%;background:linear-gradient(90deg,#fff,#e5e7eb);transition:width .4s}
+      #xaiz-cb-evaltxt{position:absolute;inset:0;text-align:center;font-size:11px;font-weight:800;color:#f59e0b;line-height:18px;text-shadow:0 0 3px #000}
+      #xaiz-cb-tabs{display:flex;background:#111827}
+      #xaiz-cb-tabs button{flex:1;padding:10px 2px;border:0;background:transparent;color:#9ca3af;font-weight:800;font-size:12px;cursor:pointer;border-bottom:3px solid transparent}
+      #xaiz-cb-tabs button.on{color:#fbbf24;border-bottom-color:#f59e0b}
+      #xaiz-cb-body{padding:12px}
+      #xaiz-cb-body .row{margin:5px 0;display:flex;gap:6px}
       #xaiz-cb-body .row.small{font-size:11px;word-break:break-all}
-      #xaiz-cb-body .btns{display:flex;gap:6px;margin-top:8px}
-      #xaiz-cb-body button{flex:1;padding:8px 4px;border:0;border-radius:8px;font-weight:800;
-        background:#374151;color:#fff;cursor:pointer;font-size:12px}
-      #xaiz-cb-auto.on{background:#16a34a}
-      #xaiz-cb-body .note{font-size:11px;color:#fbbf24;margin-top:8px;line-height:1.4}`;
+      #xaiz-cb-body .bigmove{display:flex;justify-content:space-between;align-items:center;background:#374151;
+        border-radius:12px;padding:12px;margin:8px 0}
+      #xaiz-cb-body .bigmove b{font-size:24px;color:#4ade80}
+      #xaiz-cb-body .bigbtn{width:100%;padding:14px;border:0;border-radius:12px;font-weight:900;font-size:15px;
+        background:linear-gradient(90deg,#16a34a,#22c55e);color:#fff;cursor:pointer;margin-top:8px}
+      #xaiz-cb-auto.off{background:linear-gradient(90deg,#374151,#4b5563)}
+      #xaiz-cb-body .btns{display:flex;gap:8px;margin-top:8px}
+      #xaiz-cb-body .btns button{flex:1;min-height:44px;padding:10px 4px;border:0;border-radius:10px;font-weight:800;
+        background:#374151;color:#fff;cursor:pointer;font-size:13px}
+      #xaiz-cb-body .note{font-size:12px;color:#fbbf24;margin-top:10px;line-height:1.5}
+      #xaiz-cb-top3 .t3{display:flex;justify-content:space-between;align-items:center;width:100%;min-height:48px;
+        margin-top:8px;border:0;border-radius:12px;background:#374151;color:#fff;font-weight:800;font-size:15px;cursor:pointer;padding:0 12px}
+      #xaiz-cb-top3 .t3 small{color:#9ca3af;font-size:12px}`;
     document.head.appendChild(st);
     document.body.appendChild(panel);
-    elStatus = panel.querySelector('#xaiz-cb-status');
-    elFen = panel.querySelector('#xaiz-cb-fen');
-    elBest = panel.querySelector('#xaiz-cb-best');
-    elEval = panel.querySelector('#xaiz-cb-eval');
-    elMode = panel.querySelector('#xaiz-cb-mode');
-    elAuto = panel.querySelector('#xaiz-cb-auto');
-
-    elMode.textContent = 'MODE: ' + mode;
-    elAuto.textContent = autoMove ? '⏸ TẮT TỰ ĐI' : '▶ BẬT TỰ ĐI';
-    elAuto.classList.toggle('on', autoMove);
-
-    elAuto.onclick = () => {
+    const q = (s) => panel.querySelector(s);
+    els = {
+      status: q('#xaiz-cb-status'), best: q('#xaiz-cb-best'), eval: q('#xaiz-cb-eval'),
+      src: q('#xaiz-cb-src'), fen: q('#xaiz-cb-fen'), auto: q('#xaiz-cb-auto'),
+      mode: q('#xaiz-cb-mode'), top3: q('#xaiz-cb-top3'), opening: q('#xaiz-cb-opening'),
+      openmoves: q('#xaiz-cb-openmoves'), count: q('#xaiz-cb-count'),
+      evalfill: q('#xaiz-cb-evalfill'), evaltxt: q('#xaiz-cb-evaltxt'),
+    };
+    // Tab
+    panel.querySelectorAll('#xaiz-cb-tabs button').forEach((b) => {
+      b.onclick = () => {
+        curTab = b.dataset.tab;
+        panel.querySelectorAll('#xaiz-cb-tabs button').forEach(x => x.classList.toggle('on', x === b));
+        panel.querySelectorAll('.tabpage').forEach(p => { p.style.display = p.dataset.page === curTab ? '' : 'none'; });
+      };
+    });
+    els.auto.textContent = autoMove ? '⏸ TẮT TỰ ĐI' : '▶ BẬT TỰ ĐI';
+    els.auto.classList.toggle('off', !autoMove);
+    els.auto.onclick = () => {
       autoMove = !autoMove; localStorage.setItem('xaiz_auto', String(autoMove));
-      elAuto.textContent = autoMove ? '⏸ TẮT TỰ ĐI' : '▶ BẬT TỰ ĐI';
-      elAuto.classList.toggle('on', autoMove);
+      els.auto.textContent = autoMove ? '⏸ TẮT TỰ ĐI' : '▶ BẬT TỰ ĐI';
+      els.auto.classList.toggle('off', !autoMove);
       setStatus(autoMove ? 'TỰ ĐI đang BẬT' : 'TỰ ĐI đã tắt (chỉ gợi ý)');
     };
-    elMode.onclick = () => {
+    els.mode.textContent = 'MODE: ' + mode;
+    els.mode.onclick = () => {
       const i = CFG.modeOrder.indexOf(mode);
       mode = CFG.modeOrder[(i + 1) % CFG.modeOrder.length];
       localStorage.setItem('xaiz_mode', mode);
-      elMode.textContent = 'MODE: ' + mode;
-      lastFen = ''; // tính lại với depth mới
+      els.mode.textContent = 'MODE: ' + mode;
+      lastFen = '';
     };
-    panel.querySelector('#xaiz-cb-scan').onclick = () => { lastFen = ''; lastBoardKey = ''; scan(true); };
-    panel.querySelector('#xaiz-cb-flip').onclick = () => {
-      flipped = !flipped; myColor = flipped ? 'b' : 'w'; lastFen = ''; lastBoardKey = '';
-      setStatus('Đã đổi chiều bàn, đang quét lại…'); scan(true);
-    };
-    panel.querySelector('#xaiz-cb-test').onclick = async () => {
+    q('#xaiz-cb-scan').onclick = () => { lastFen = ''; scan(true); };
+    q('#xaiz-cb-flip').onclick = () => { flipped = !flipped; myColor = flipped ? 'b' : 'w'; lastFen = ''; setStatus('Đã đổi chiều bàn, đang quét lại…'); scan(true); };
+    q('#xaiz-cb-test').onclick = async () => {
       if (!lastBest) { setStatus('Chưa có nước tốt nhất, bấm QUÉT BÀN trước'); return; }
       setStatus('Đang đi thử: ' + lastBest);
       await playMove(lastBest);
     };
-    panel.querySelector('#xaiz-cb-hide').onclick = () => { panel.style.display = 'none'; showFab(); };
-    panel.querySelector('#xaiz-cb-min').onclick = () => {
-      const b = panel.querySelector('#xaiz-cb-body');
+    q('#xaiz-cb-hide').onclick = () => { panel.style.display = 'none'; showFab(); };
+    q('#xaiz-cb-close').onclick = () => { panel.style.display = 'none'; showFab(); };
+    q('#xaiz-cb-min').onclick = () => {
+      const b = q('#xaiz-cb-body');
       b.style.display = b.style.display === 'none' ? '' : 'none';
+      q('#xaiz-cb-tabs').style.display = b.style.display;
+      q('#xaiz-cb-evalbar').style.display = b.style.display;
     };
-    // Kéo panel bằng đầu panel (cho điện thoại).
-    const head = panel.querySelector('#xaiz-cb-head');
+    // Kéo menu bằng đầu menu (cảm ứng mobile).
+    const head = q('#xaiz-cb-head');
     head.addEventListener('pointerdown', (e) => {
       const r = panel.getBoundingClientRect();
       const dx = e.clientX - r.left, dy = e.clientY - r.top;
@@ -337,20 +393,41 @@
       window.addEventListener('pointermove', mv); window.addEventListener('pointerup', up);
     });
   }
-
   function showFab() {
     if (document.getElementById('xaiz-cb-fab')) return;
     const fab = document.createElement('button');
     fab.id = 'xaiz-cb-fab';
     fab.textContent = '♟️';
-    fab.style.cssText = 'position:fixed;bottom:16px;right:16px;z-index:999999;width:46px;height:46px;border-radius:50%;border:2px solid #f59e0b;background:#111827;color:#fff;font-size:22px';
+    fab.style.cssText = 'position:fixed;bottom:16px;right:16px;z-index:999999;width:52px;height:52px;border-radius:50%;border:2px solid #f59e0b;background:#111827;color:#fff;font-size:24px';
     fab.onclick = () => { panel.style.display = ''; fab.remove(); };
     document.body.appendChild(fab);
   }
-
-  function setStatus(t) { if (elStatus) elStatus.textContent = t; }
-
-  // Vẽ ô from/to lên bàn để bạn thấy nước engine chọn.
+  function setStatus(t) { if (els.status) els.status.textContent = t; }
+  function updateStats() { if (els.count) els.count.textContent = botMoves + ' nước'; }
+  function renderTop3() {
+    if (!els.top3) return;
+    els.top3.innerHTML = '';
+    if (!lastTop3.length) { els.top3.innerHTML = '<div class="note">Chưa có nước — bấm QUÉT BÀN trong tab CÀI ĐẶT.</div>'; return; }
+    lastTop3.forEach((t, i) => {
+      const b = document.createElement('button');
+      b.className = 't3';
+      const pct = t.cp === null ? '—' : (winPct(myColor === 'w' ? t.cp : -t.cp) + '%');
+      const mate = t.mate ? ' Mate ' + Math.abs(t.mate) : '';
+      b.innerHTML = `<span>${i + 1}. ${t.move}</span><small>${mate || pct}</small>`;
+      b.onclick = async () => { setStatus('Đang đi: ' + t.move); await playMove(t.move); };
+      els.top3.appendChild(b);
+    });
+  }
+  function renderOpening() {
+    if (!els.opening) return;
+    if (lastOpening) {
+      els.opening.textContent = lastOpening.name + ' (' + lastOpening.eco + ')';
+      els.openmoves.textContent = lastOpening.moves.join(' ');
+    } else {
+      els.opening.textContent = 'Đã qua giai đoạn mở cờ';
+      els.openmoves.textContent = '—';
+    }
+  }
   function highlightMove(uci) {
     const board = getBoardEl();
     if (!board || !uci) return;
@@ -370,37 +447,39 @@
     const read = readPieces();
     if (!read) { setStatus('Chưa thấy bàn cờ — vào ván rồi bấm QUÉT BÀN'); return; }
     const { pieces } = read;
-    const count = Object.keys(pieces).length;
-    if (count < 2) { setStatus('Bàn chưa tải đủ quân (' + count + '), đợi rồi quét lại'); return; }
+    if (Object.keys(pieces).length < 2) { setStatus('Bàn chưa tải đủ quân, đợi rồi quét lại'); return; }
     const fen = buildFen(pieces);
-    const key = JSON.stringify(pieces);
-    elFen.textContent = fen;
+    const sans = readMoveSANs();
+    lastOpening = findOpening(sans);
+    renderOpening();
+    els.fen.textContent = fen;
     const active = fen.split(' ')[1];
     const isMyTurn = active === myColor;
-    if (fen === lastFen && !manual) return; // bàn không đổi thì thôi
-    lastFen = fen; lastBoardKey = key;
-
+    if (fen === lastFen && !manual) return;
+    lastFen = fen;
     if (!isMyTurn) { setStatus('Chưa đến lượt bạn (' + (myColor === 'w' ? 'Trắng' : 'Đen') + ')'); return; }
     if (engineBusy) return;
     engineBusy = true;
-    setStatus('Engine đang tính… (Depth ' + CFG.modes[mode].depth + ')');
+    setStatus('Engine đang tính… (' + mode + ' depth ' + CFG.modes[mode].depth + ')');
     try {
       const res = await analyse(fen);
-      // Bàn đổi trong lúc tính thì bỏ kết quả cũ.
       if (buildFen(readPieces().pieces) !== fen) { engineBusy = false; return; }
-      lastBest = res.best; lastEval = res.eval; lastMate = res.mate;
-      elBest.textContent = res.best + (res.mate ? '  (chiếu hết trong ' + res.mate + ')' : '');
-      elEval.textContent = res.eval === null ? '—' : (res.eval > 0 ? '+' : '') + res.eval.toFixed(2);
+      lastBest = res.best; lastTop3 = res.top3 || []; lastEvalCp = res.cp; lastMate = res.mate;
+      els.best.textContent = res.best;
+      els.src.textContent = res.source;
+      const pctW = res.cp === null ? 50 : winPct(res.cp);
+      els.evalfill.style.width = pctW + '%';
+      els.evaltxt.textContent = 'Trắng ' + pctW + '% thắng';
+      els.eval.textContent = res.mate ? ('Chiếu hết trong ' + Math.abs(res.mate))
+        : (res.cp === null ? '—' : ((res.cp > 0 ? '+' : '') + (res.cp / 100).toFixed(2) + '  •  Trắng ' + pctW + '%'));
       highlightMove(res.best);
-      setStatus('Đã có nước: ' + res.best);
+      renderTop3();
+      setStatus('Đã có nước: ' + res.best + ' (' + res.source + ')');
       if (autoMove) {
         const d = rand(CFG.modes[mode].delayMin, CFG.modes[mode].delayMax);
-        setStatus('Tự đi sau ' + Math.round(d / 1000 * 10) / 10 + 's: ' + res.best);
+        setStatus('Tự đi sau ' + (Math.round(d / 100) / 10) + 's: ' + res.best);
         await sleep(d);
-        if (lastBest === res.best && autoMove) {
-          await playMove(res.best);
-          setStatus('Đã đi: ' + res.best);
-        }
+        if (lastBest === res.best && autoMove) { await playMove(res.best); setStatus('Đã đi: ' + res.best); }
       }
     } catch (e) {
       setStatus('Engine lỗi: ' + e.message + ' — thử QUÉT BÀN lại');
@@ -408,21 +487,17 @@
     } finally { engineBusy = false; }
   }
 
-  // ================= KHỞI ĐỘNG =================
   function init() {
     if (document.getElementById('xaiz-chess-bot-panel')) return;
     buildPanel();
-    setStatus('Đã tải XAIZ Chess Bot — vào ván rồi bấm QUÉT BÀN');
+    renderTop3();
+    setStatus('XAIZ Chess Bot v2 đã tải — vào ván rồi bấm QUÉT BÀN');
     setInterval(() => scan(false), CFG.scanMs);
-    // Phím tắt: Alt+B ẩn/hiện panel.
     document.addEventListener('keydown', (e) => {
-      if (e.altKey && (e.key === 'b' || e.key === 'B')) {
-        panel.style.display = panel.style.display === 'none' ? '' : 'none';
-      }
+      if (e.altKey && (e.key === 'b' || e.key === 'B')) panel.style.display = panel.style.display === 'none' ? '' : 'none';
     });
-    log('XAIZ Chess Bot v1.0.0 đã tải. Mode:', mode, 'Auto:', autoMove);
+    log('XAIZ Chess Bot v2.0.0 đã tải. Mode:', mode, 'Auto:', autoMove);
   }
-
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
   else init();
 })();

@@ -11,9 +11,14 @@ hiện panel ngoài màn hình, tự đi quân khi đến lượt bạn.
 
 ## File
 
-- `ChessCom-Bot-AI.user.js` — userscript Tampermonkey, chạy trên web chess.com.
-  Engine gọi API Stockfish online (miễn phí, không cần key), dự phòng Lichess
-  Cloud Eval. Không thu thập mật khẩu, không gửi dữ liệu tài khoản đi đâu.
+- `ChessCom-Bot-AI.user.js` — userscript Tampermonkey v2.0.0, chạy trên web chess.com.
+  Menu VIP mobile kéo được, 4 tab (BOT / TOP 3 / MỞ CỜ / CÀI ĐẶT), thanh eval,
+  Top 3 nước, sách mở cờ 24 khai cuộc + Lichess Cloud Eval (hàng triệu thế cờ)
+  rồi mới tới Stockfish (depth tối đa 15).
+- `ChessCom-Bot-AI-Console.js` — bản v2 chạy bằng JavaScript Console trong Kiwi,
+  không cần Tampermonkey: dán code vào Console là chạy.
+  Engine gọi API Stockfish online (miễn phí, không cần key) và Lichess Cloud Eval.
+  Không thu thập mật khẩu, không gửi dữ liệu tài khoản đi đâu.
 
 ## Cách cài trên điện thoại Android
 
