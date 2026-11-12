@@ -1,9 +1,9 @@
-/* CHESS.COM BOT AI v3 VIP - BẢN CHẠY BẰNG CONSOLE (không cần Tampermonkey)
+/* CHESS.COM BOT AI v3.1 VIP - BẢN CHẠY BẰNG CONSOLE (không cần Tampermonkey)
    Cách dùng: mở chess.com bằng Kiwi, vào ván, mở Developers > JavaScript Console,
    dán TOÀN BỘ file này vào ô nhập, bấm nút chạy (▶). Panel bot sẽ hiện ra.
    Mỗi lần tải lại trang / vào ván mới thì dán lại 1 lần. */
 /*
-  CHESS.COM BOT AI v3.0.0 VIP — XAIZ TOOL
+  CHESS.COM BOT AI v3.1.0 VIP — XAIZ TOOL
   ------------------------------------
   NÓI THẬT VỀ 2 CON SỐ BẠN HỎI:
   - "Thắng 999%": KHÔNG CÓ. Thắng tối đa là 100%, và không ai thắng 100% mọi
@@ -43,6 +43,7 @@
   // nhận lại chiều bàn nên nút bấm không có tác dụng). v2.1 thêm colorOverride:
   // khi bạn chọn tay màu cờ thì lần quét sau KHÔNG tự nhận lại nữa.
   let colorOverride = localStorage.getItem('xaiz_color'); // 'w' | 'b' | null = tự nhận theo chiều bàn, đã lưu nên tải lại trang vẫn nhớ
+  let turnFlip = localStorage.getItem('xaiz_turnflip') === 'true'; // true = đảo lượt đi tự nhận (khi nó cứ hiện sai lượt)
   let lastFen = '';
   let lastBest = '';
   let lastTop3 = [];       // [{move, cp, mate}]
@@ -89,8 +90,9 @@
   // ================= TIỆN ÍCH =================
   const sleep = (ms) => new Promise(r => setTimeout(r, ms));
   const rand = (a, b) => a + Math.random() * (b - a);
-  const log = (...a) => console.log('[XAIZ Chess Bot v3 VIP]', ...a);
+  const log = (...a) => console.log('[XAIZ Chess Bot v3.1 VIP]', ...a);
   function saveColor(c) { colorOverride = c; try { localStorage.setItem('xaiz_color', c); } catch (e) {} }
+  function saveTurnFlip(v) { turnFlip = v; try { localStorage.setItem('xaiz_turnflip', String(v)); } catch (e) {} }
   // Đổi centipawn -> % thắng của Trắng (công thức chuẩn của Lichess).
   function winPct(cp) {
     if (cp === null || cp === undefined) return null;
@@ -153,13 +155,18 @@
     return { board, pieces };
   }
   // Danh sách nước đi SAN đã đi (để đếm lượt + nhận diện khai cuộc).
+  // SỬA LỖI v3.0: đếm node .move làm sai lượt đi, vì 1 node của Chess.com chứa
+  // cả 2 nước (vd "e4 e5") nên đếm thiếu 1 nửa, lượt Trắng/Đen bị đảo ngược.
+  // v3.1 đọc toàn bộ chữ trong danh sách nước đi rồi tách từng nước SAN ra đếm.
   function readMoveSANs() {
     const list = document.querySelector('[data-test-element="move-list"], .vertical-move-list, .move-list');
     if (!list) return [];
+    const text = list.textContent || '';
     const sans = [];
-    list.querySelectorAll('.move, .node, [class*="move-"]').forEach((el) => {
-      const t = (el.textContent || '').trim().replace(/[+#?!]+$/, '');
-      if (/^(O-O-O|O-O|[KQRBN]?[a-h][1-8][a-h]?[1-8]?[=QRBN]?)$/.test(t)) sans.push(t);
+    text.split(/\s+/).forEach((raw) => {
+      const t = raw.trim().replace(/[+#?!]+$/, '');
+      if (!t || /^\d+\.$/.test(t) || /^(1-0|0-1|1\/2-1\/2|\*)$/.test(t)) return;
+      if (/^(O-O-O|O-O|[KQRBN]?[a-h]?x?[a-h][1-8](?:=[QRBN])?)$/.test(t)) sans.push(t);
     });
     return sans;
   }
@@ -199,7 +206,8 @@
     if (!c) c = '-';
     const sans = readMoveSANs();
     if (sans.length) plyCount = sans.length;
-    const active = (plyCount % 2 === 0) ? 'w' : 'b';
+    let active = (plyCount % 2 === 0) ? 'w' : 'b';
+    if (turnFlip) active = active === 'w' ? 'b' : 'w';
     fullmove = Math.floor(plyCount / 2) + 1;
     return `${placement} ${active} ${c} - ${halfmove} ${fullmove}`;
   }
@@ -293,7 +301,7 @@
     panel.id = 'xaiz-chess-bot-panel';
     panel.innerHTML = `
       <div id="xaiz-cb-head">
-        <span>♟️ XAIZ CHESS BOT <span class="ver">v3 VIP</span></span>
+        <span>♟️ XAIZ CHESS BOT <span class="ver">v3.1 VIP</span></span>
         <span class="head-btns"><span id="xaiz-cb-min">—</span><span id="xaiz-cb-close">✕</span></span>
       </div>
       <div id="xaiz-cb-evalbar"><div id="xaiz-cb-evalfill"></div><span id="xaiz-cb-evaltxt">50%</span></div>
@@ -306,6 +314,7 @@
       <div id="xaiz-cb-body">
         <div class="tabpage" data-page="bot">
           <div class="row"><span>Bạn cầm:</span><b id="xaiz-cb-mycolor">Trắng ♔</b></div>
+          <div class="row"><span>Lượt đi:</span><b id="xaiz-cb-turn">—</b></div>
           <div class="row"><span>Trạng thái:</span><b id="xaiz-cb-status">Đang quét bàn…</b></div>
           <div class="bigmove"><span>Nước tốt nhất</span><b id="xaiz-cb-best">—</b></div>
           <div class="row"><span>Đánh giá:</span><b id="xaiz-cb-eval">—</b></div>
@@ -338,6 +347,9 @@
           <div class="note" id="xaiz-cb-checkres"></div>
           <div class="btns">
             <button id="xaiz-cb-flip">↕ ĐỔI CHIỀU BÀN</button>
+            <button id="xaiz-cb-turnflip">🔄 ĐỔI LƯỢT</button>
+          </div>
+          <div class="btns">
             <button id="xaiz-cb-hide">👁 ẨN MENU</button>
           </div>
           <div class="note">LEGIT depth 10 (chậm như người) • VIP depth 13 • RAGE depth 15. Chỉ test với Bot / ván không xếp hạng. Engine không thắng 100%, đánh rank bằng engine = khóa acc.</div>
@@ -427,6 +439,7 @@
     q('#xaiz-cb-white').onclick = () => { saveColor('w'); lastFen = ''; setStatus('Đã chọn: bạn cầm Trắng, đang quét lại…'); scan(true); };
     q('#xaiz-cb-black').onclick = () => { saveColor('b'); lastFen = ''; setStatus('Đã chọn: bạn cầm Đen, đang quét lại…'); scan(true); };
     q('#xaiz-cb-flip').onclick = () => { saveColor(myColor === 'w' ? 'b' : 'w'); lastFen = ''; setStatus('Đã đổi chiều bàn, đang quét lại…'); scan(true); };
+    q('#xaiz-cb-turnflip').onclick = () => { saveTurnFlip(!turnFlip); lastFen = ''; setStatus('Đã đổi lượt đi, đang quét lại…'); scan(true); };
     q('#xaiz-cb-test').onclick = async () => {
       if (!lastBest) { setStatus('Chưa có nước tốt nhất, bấm QUÉT BÀN trước'); return; }
       setStatus('Đang đi thử: ' + lastBest);
@@ -514,6 +527,8 @@
     els.fen.textContent = fen;
     const mc = panel.querySelector('#xaiz-cb-mycolor');
     if (mc) mc.textContent = myColor === 'w' ? 'Trắng ♔' : 'Đen ♚';
+    const tn = panel.querySelector('#xaiz-cb-turn');
+    if (tn) tn.textContent = (active === 'w' ? 'Trắng ♔' : 'Đen ♚') + ' • đã đi ' + plyCount + ' nước';
     const active = fen.split(' ')[1];
     const isMyTurn = active === myColor;
     if (fen === lastFen && !manual) return;
@@ -561,7 +576,7 @@
     document.addEventListener('keydown', (e) => {
       if (e.altKey && (e.key === 'b' || e.key === 'B')) panel.style.display = panel.style.display === 'none' ? '' : 'none';
     });
-    log('XAIZ Chess Bot v3.0.0 VIP đã tải. Mode:', mode, 'Auto:', autoMove);
+    log('XAIZ Chess Bot v3.1.0 VIP đã tải. Mode:', mode, 'Auto:', autoMove);
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
   else init();
