@@ -1,9 +1,9 @@
-/* CHESS.COM BOT AI v2.1 - BẢN CHẠY BẰNG CONSOLE (không cần Tampermonkey)
+/* CHESS.COM BOT AI v3 VIP - BẢN CHẠY BẰNG CONSOLE (không cần Tampermonkey)
    Cách dùng: mở chess.com bằng Kiwi, vào ván, mở Developers > JavaScript Console,
    dán TOÀN BỘ file này vào ô nhập, bấm nút chạy (▶). Panel bot sẽ hiện ra.
    Mỗi lần tải lại trang / vào ván mới thì dán lại 1 lần. */
 /*
-  CHESS.COM BOT AI v2.1.0 — XAIZ TOOL
+  CHESS.COM BOT AI v3.0.0 VIP — XAIZ TOOL
   ------------------------------------
   NÓI THẬT VỀ 2 CON SỐ BẠN HỎI:
   - "Thắng 999%": KHÔNG CÓ. Thắng tối đa là 100%, và không ai thắng 100% mọi
@@ -42,7 +42,7 @@
   // SỬA LỖI v2: nút ĐỔI CHIỀU BÀN ở v2 bị lần quét sau ghi đè (readPieces tự
   // nhận lại chiều bàn nên nút bấm không có tác dụng). v2.1 thêm colorOverride:
   // khi bạn chọn tay màu cờ thì lần quét sau KHÔNG tự nhận lại nữa.
-  let colorOverride = null; // 'w' | 'b' | null = tự nhận theo chiều bàn
+  let colorOverride = localStorage.getItem('xaiz_color'); // 'w' | 'b' | null = tự nhận theo chiều bàn, đã lưu nên tải lại trang vẫn nhớ
   let lastFen = '';
   let lastBest = '';
   let lastTop3 = [];       // [{move, cp, mate}]
@@ -89,7 +89,8 @@
   // ================= TIỆN ÍCH =================
   const sleep = (ms) => new Promise(r => setTimeout(r, ms));
   const rand = (a, b) => a + Math.random() * (b - a);
-  const log = (...a) => console.log('[XAIZ Chess Bot v2]', ...a);
+  const log = (...a) => console.log('[XAIZ Chess Bot v3 VIP]', ...a);
+  function saveColor(c) { colorOverride = c; try { localStorage.setItem('xaiz_color', c); } catch (e) {} }
   // Đổi centipawn -> % thắng của Trắng (công thức chuẩn của Lichess).
   function winPct(cp) {
     if (cp === null || cp === undefined) return null;
@@ -120,11 +121,8 @@
     if (!flipped) return FILES[x - 1] + String(9 - y);
     return FILES[8 - x] + String(y);
   }
-  function readPieces() {
-    const board = getBoardEl();
-    if (!board) return null;
-    if (colorOverride) { flipped = (colorOverride === 'b'); myColor = colorOverride; }
-    else { flipped = detectFlipped(board); myColor = flipped ? 'b' : 'w'; }
+  function parsePieces(board, flipVal) {
+    const save = flipped; flipped = flipVal;
     const pieces = {};
     board.querySelectorAll('.piece').forEach((el) => {
       const cls = el.className || '';
@@ -134,6 +132,24 @@
       pieces[squareXYtoAlgebraic(parseInt(mSq[1], 10), parseInt(mSq[2], 10))] =
         { color: mPc[1], type: PIECE_LETTER[mPc[2]] };
     });
+    flipped = save;
+    return pieces;
+  }
+  function readPieces() {
+    const board = getBoardEl();
+    if (!board) return null;
+    if (colorOverride) { flipped = (colorOverride === 'b'); myColor = colorOverride; }
+    else { flipped = detectFlipped(board); myColor = flipped ? 'b' : 'w'; }
+    let pieces = parsePieces(board, flipped);
+    // Tự hiệu chỉnh: nếu vua trắng lại ở hạng 8 và vua đen ở hạng 1 thì chiều
+    // bàn đang bị đảo -> đọc lại với chiều ngược lại.
+    const wk = Object.keys(pieces).find(sq => pieces[sq].type === 'k' && pieces[sq].color === 'w');
+    const bk = Object.keys(pieces).find(sq => pieces[sq].type === 'k' && pieces[sq].color === 'b');
+    if (wk && bk && parseInt(wk[1], 10) >= 7 && parseInt(bk[1], 10) <= 2 && !colorOverride) {
+      flipped = !flipped; myColor = flipped ? 'b' : 'w';
+      pieces = parsePieces(board, flipped);
+      log('Tự hiệu chỉnh chiều bàn: vua bị đảo nên đã lật lại');
+    }
     return { board, pieces };
   }
   // Danh sách nước đi SAN đã đi (để đếm lượt + nhận diện khai cuộc).
@@ -229,6 +245,20 @@
     if (!flipped) { col = file; row = 8 - rank; } else { col = 7 - file; row = rank - 1; }
     return { x: r.left + (col + 0.5) * (r.width / 8), y: r.top + (row + 0.5) * (r.height / 8) };
   }
+  function squareToXY(sq) {
+    const file = FILES.indexOf(sq[0]);
+    const rank = parseInt(sq[1], 10);
+    if (!flipped) return { x: file + 1, y: 9 - rank };
+    return { x: 8 - file, y: rank };
+  }
+  function clickSquare(board, sq) {
+    const xy = squareToXY(sq);
+    const el = board.querySelector('.square-' + xy.x + '' + xy.y);
+    if (el) { el.dispatchEvent(new MouseEvent('mousedown', { bubbles: true })); el.dispatchEvent(new MouseEvent('mouseup', { bubbles: true })); el.click(); return true; }
+    const p = squareCenterPoint(board, sq);
+    fireClickAt(p.x, p.y);
+    return true;
+  }
   function fireClickAt(x, y) {
     const el = document.elementFromPoint(x, y) || document.body;
     const opts = { bubbles: true, cancelable: true, clientX: x, clientY: y, button: 0, pointerId: 1, isPrimary: true };
@@ -242,11 +272,9 @@
     const board = getBoardEl();
     if (!board) return false;
     const from = uci.slice(0, 2), to = uci.slice(2, 4), promo = uci.slice(4, 5);
-    const p1 = squareCenterPoint(board, from);
-    fireClickAt(p1.x, p1.y);
+    clickSquare(board, from);
     await sleep(rand(120, 260));
-    const p2 = squareCenterPoint(board, to);
-    fireClickAt(p2.x, p2.y);
+    clickSquare(board, to);
     await sleep(400);
     if (promo) {
       const qBtn = document.querySelector('[data-test-element="promotion-piece-q"], .promotion-piece.q, [class*="promotion"] [class*="q"]');
@@ -265,7 +293,7 @@
     panel.id = 'xaiz-chess-bot-panel';
     panel.innerHTML = `
       <div id="xaiz-cb-head">
-        <span>♟️ XAIZ CHESS BOT <span class="ver">v2.1 VIP</span></span>
+        <span>♟️ XAIZ CHESS BOT <span class="ver">v3 VIP</span></span>
         <span class="head-btns"><span id="xaiz-cb-min">—</span><span id="xaiz-cb-close">✕</span></span>
       </div>
       <div id="xaiz-cb-evalbar"><div id="xaiz-cb-evalfill"></div><span id="xaiz-cb-evaltxt">50%</span></div>
@@ -306,6 +334,8 @@
             <button id="xaiz-cb-test">🎯 ĐI 1 NƯỚC</button>
             <button id="xaiz-cb-scan">🔍 QUÉT BÀN</button>
           </div>
+          <button id="xaiz-cb-check" class="bigbtn" style="background:linear-gradient(90deg,#7c3aed,#a855f7)">✅ KIỂM TRA TOOL</button>
+          <div class="note" id="xaiz-cb-checkres"></div>
           <div class="btns">
             <button id="xaiz-cb-flip">↕ ĐỔI CHIỀU BÀN</button>
             <button id="xaiz-cb-hide">👁 ẨN MENU</button>
@@ -379,9 +409,24 @@
       lastFen = '';
     };
     q('#xaiz-cb-scan').onclick = () => { lastFen = ''; scan(true); };
-    q('#xaiz-cb-white').onclick = () => { colorOverride = 'w'; lastFen = ''; setStatus('Đã chọn: bạn cầm Trắng, đang quét lại…'); scan(true); };
-    q('#xaiz-cb-black').onclick = () => { colorOverride = 'b'; lastFen = ''; setStatus('Đã chọn: bạn cầm Đen, đang quét lại…'); scan(true); };
-    q('#xaiz-cb-flip').onclick = () => { colorOverride = (myColor === 'w' ? 'b' : 'w'); lastFen = ''; setStatus('Đã đổi chiều bàn, đang quét lại…'); scan(true); };
+    q('#xaiz-cb-check').onclick = async () => {
+      const res = q('#xaiz-cb-checkres');
+      const out = [];
+      const read = readPieces();
+      out.push(read ? ('✅ Thấy bàn cờ, ' + Object.keys(read.pieces).length + ' quân') : '❌ Chưa thấy bàn cờ — vào ván đã rồi bấm lại');
+      if (read) {
+        const fen = buildFen(read.pieces);
+        const kings = Object.values(read.pieces).filter(pc => pc.type === 'k').length;
+        out.push(kings === 2 ? ('✅ Đủ 2 vua, FEN: ' + fen) : '❌ Bàn đọc sai — thiếu vua, bấm ĐỔI CHIỀU BÀN');
+        out.push('✅ Bạn cầm: ' + (myColor === 'w' ? 'Trắng' : 'Đen'));
+        try { const r = await analyse(fen); out.push('✅ Engine OK (' + r.source + '): ' + r.best); }
+        catch (e) { out.push('❌ Engine lỗi: ' + e.message); }
+      }
+      res.innerHTML = out.join('<br>');
+    };
+    q('#xaiz-cb-white').onclick = () => { saveColor('w'); lastFen = ''; setStatus('Đã chọn: bạn cầm Trắng, đang quét lại…'); scan(true); };
+    q('#xaiz-cb-black').onclick = () => { saveColor('b'); lastFen = ''; setStatus('Đã chọn: bạn cầm Đen, đang quét lại…'); scan(true); };
+    q('#xaiz-cb-flip').onclick = () => { saveColor(myColor === 'w' ? 'b' : 'w'); lastFen = ''; setStatus('Đã đổi chiều bàn, đang quét lại…'); scan(true); };
     q('#xaiz-cb-test').onclick = async () => {
       if (!lastBest) { setStatus('Chưa có nước tốt nhất, bấm QUÉT BÀN trước'); return; }
       setStatus('Đang đi thử: ' + lastBest);
@@ -460,6 +505,8 @@
     if (!read) { setStatus('Chưa thấy bàn cờ — vào ván rồi bấm QUÉT BÀN'); return; }
     const { pieces } = read;
     if (Object.keys(pieces).length < 2) { setStatus('Bàn chưa tải đủ quân, đợi rồi quét lại'); return; }
+    const kings = Object.values(pieces).filter(pc => pc.type === 'k').length;
+    if (kings !== 2) { setStatus('Bàn đọc sai — thiếu vua (' + kings + '/2), bấm ĐỔI CHIỀU BÀN hoặc KIỂM TRA'); return; }
     const fen = buildFen(pieces);
     const sans = readMoveSANs();
     lastOpening = findOpening(sans);
@@ -477,7 +524,8 @@
     setStatus('Engine đang tính… (' + mode + ' depth ' + CFG.modes[mode].depth + ')');
     try {
       const res = await analyse(fen);
-      if (buildFen(readPieces().pieces) !== fen) { engineBusy = false; return; }
+      const reCheck = readPieces();
+      if (!reCheck || buildFen(reCheck.pieces) !== fen) { engineBusy = false; return; }
       lastBest = res.best; lastTop3 = res.top3 || []; lastEvalCp = res.cp; lastMate = res.mate;
       els.best.textContent = res.best;
       els.src.textContent = res.source;
@@ -502,15 +550,18 @@
   }
 
   function init() {
-    if (document.getElementById('xaiz-chess-bot-panel')) return;
+    if (window.__xaizBotInterval) clearInterval(window.__xaizBotInterval);
+    const old = document.getElementById('xaiz-chess-bot-panel');
+    if (old) old.remove();
+    document.querySelectorAll('.xaiz-hl').forEach(el => el.remove());
     buildPanel();
     renderTop3();
     setStatus('XAIZ Chess Bot v2 đã tải — vào ván rồi bấm QUÉT BÀN');
-    setInterval(() => scan(false), CFG.scanMs);
+    window.__xaizBotInterval = setInterval(() => { scan(false).catch(e => log('scan lỗi', e)); }, CFG.scanMs);
     document.addEventListener('keydown', (e) => {
       if (e.altKey && (e.key === 'b' || e.key === 'B')) panel.style.display = panel.style.display === 'none' ? '' : 'none';
     });
-    log('XAIZ Chess Bot v2.1.0 đã tải. Mode:', mode, 'Auto:', autoMove);
+    log('XAIZ Chess Bot v3.0.0 VIP đã tải. Mode:', mode, 'Auto:', autoMove);
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
   else init();
