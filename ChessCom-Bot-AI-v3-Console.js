@@ -1,9 +1,9 @@
-/* CHESS.COM BOT AI v3.1 VIP - BẢN CHẠY BẰNG CONSOLE (không cần Tampermonkey)
+/* CHESS.COM BOT AI v3.2 VIP - BẢN CHẠY BẰNG CONSOLE (không cần Tampermonkey)
    Cách dùng: mở chess.com bằng Kiwi, vào ván, mở Developers > JavaScript Console,
    dán TOÀN BỘ file này vào ô nhập, bấm nút chạy (▶). Panel bot sẽ hiện ra.
    Mỗi lần tải lại trang / vào ván mới thì dán lại 1 lần. */
 /*
-  CHESS.COM BOT AI v3.1.0 VIP — XAIZ TOOL
+  CHESS.COM BOT AI v3.2.0 VIP — XAIZ TOOL
   ------------------------------------
   NÓI THẬT VỀ 2 CON SỐ BẠN HỎI:
   - "Thắng 999%": KHÔNG CÓ. Thắng tối đa là 100%, và không ai thắng 100% mọi
@@ -90,7 +90,7 @@
   // ================= TIỆN ÍCH =================
   const sleep = (ms) => new Promise(r => setTimeout(r, ms));
   const rand = (a, b) => a + Math.random() * (b - a);
-  const log = (...a) => console.log('[XAIZ Chess Bot v3.1 VIP]', ...a);
+  const log = (...a) => console.log('[XAIZ Chess Bot v3.2 VIP]', ...a);
   function saveColor(c) { colorOverride = c; try { localStorage.setItem('xaiz_color', c); } catch (e) {} }
   function saveTurnFlip(v) { turnFlip = v; try { localStorage.setItem('xaiz_turnflip', String(v)); } catch (e) {} }
   // Đổi centipawn -> % thắng của Trắng (công thức chuẩn của Lichess).
@@ -109,19 +109,16 @@
   }
   function detectFlipped(board) {
     if (!board) return false;
+    // Chess.com tự thêm class "flipped" vào wc-chess-board khi Đen ở dưới.
     if (board.classList && board.classList.contains('flipped')) return true;
-    const coords = board.parentElement
-      ? board.parentElement.querySelectorAll('.coordinate, [class*="coordinate"]') : [];
-    for (const c of coords) {
-      const t = (c.textContent || '').trim().toLowerCase();
-      if (t === 'h') return true;
-      if (t === 'a') return false;
-    }
     return false;
   }
+  // SỬA LỖI GỐC v3.1: square-XY là X = cột (a=1..h=8), Y = HẠNG (1..8),
+  // tính theo khung Trắng, không đổi khi lật bàn. Vd square-52 = e2 (KHÔNG
+  // phải e7 như code cũ tưởng). Chỉ tọa độ HIỂN THỊ khi bấm mới phụ thuộc
+  // vào bàn có lật hay không, còn tên ô thì không.
   function squareXYtoAlgebraic(x, y) {
-    if (!flipped) return FILES[x - 1] + String(9 - y);
-    return FILES[8 - x] + String(y);
+    return FILES[x - 1] + String(y);
   }
   function parsePieces(board, flipVal) {
     const save = flipped; flipped = flipVal;
@@ -256,8 +253,7 @@
   function squareToXY(sq) {
     const file = FILES.indexOf(sq[0]);
     const rank = parseInt(sq[1], 10);
-    if (!flipped) return { x: file + 1, y: 9 - rank };
-    return { x: 8 - file, y: rank };
+    return { x: file + 1, y: rank };
   }
   function clickSquare(board, sq) {
     const xy = squareToXY(sq);
@@ -301,7 +297,7 @@
     panel.id = 'xaiz-chess-bot-panel';
     panel.innerHTML = `
       <div id="xaiz-cb-head">
-        <span>♟️ XAIZ CHESS BOT <span class="ver">v3.1 VIP</span></span>
+        <span>♟️ XAIZ CHESS BOT <span class="ver">v3.2 VIP</span></span>
         <span class="head-btns"><span id="xaiz-cb-min">—</span><span id="xaiz-cb-close">✕</span></span>
       </div>
       <div id="xaiz-cb-evalbar"><div id="xaiz-cb-evalfill"></div><span id="xaiz-cb-evaltxt">50%</span></div>
@@ -576,7 +572,7 @@
     document.addEventListener('keydown', (e) => {
       if (e.altKey && (e.key === 'b' || e.key === 'B')) panel.style.display = panel.style.display === 'none' ? '' : 'none';
     });
-    log('XAIZ Chess Bot v3.1.0 VIP đã tải. Mode:', mode, 'Auto:', autoMove);
+    log('XAIZ Chess Bot v3.2.0 VIP đã tải. Mode:', mode, 'Auto:', autoMove);
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
   else init();
