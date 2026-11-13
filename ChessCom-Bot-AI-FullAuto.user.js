@@ -1,7 +1,7 @@
 // ==UserScript==
-// @name         Chess.com Bot AI FULL AUTO v10.1 — XAIZ (Bot + Người)
+// @name         Chess.com Bot AI FULL AUTO v10.2 — XAIZ (Bot + Người)
 // @namespace    xaiz-chess-fullauto
-// @version      10.1.0
+// @version      10.2.0
 // @description  Tự động toàn bộ, chạy cả ván Bot lẫn ván người: tự nhận màu Trắng/Đen, tự phân tích (engine local + Lichess + Stockfish), tự đi, tự mở ván mới. Chỉ 1 viên thuốc nhỏ + 1 bảng cài đặt gọn.
 // @author       XAIZ
 // @match        https://www.chess.com/*
@@ -552,19 +552,65 @@
     fireClickAt(pt.x, pt.y);
     return true;
   }
+  // Kéo-thả quân từ ô đầu tới ô đích — giống tay người kéo quân hơn là bấm 2 lần.
+  async function dragMove(board, fromSq, toSq) {
+    const p1 = squareCenterPoint(board, fromSq);
+    const p2 = squareCenterPoint(board, toSq);
+    if (!p1 || !p2) return false;
+    const opts = (x, y) => ({ bubbles: true, cancelable: true, clientX: x, clientY: y, pointerId: 1, isPrimary: true, button: 0, buttons: 1, pointerType: 'mouse' });
+    const el1 = document.elementFromPoint(p1.x, p1.y) || board;
+    el1.dispatchEvent(new PointerEvent('pointerdown', opts(p1.x, p1.y)));
+    el1.dispatchEvent(new MouseEvent('mousedown', opts(p1.x, p1.y)));
+    const steps = 8;
+    for (let i = 1; i <= steps; i++) {
+      const x = p1.x + (p2.x - p1.x) * i / steps;
+      const y = p1.y + (p2.y - p1.y) * i / steps;
+      document.dispatchEvent(new PointerEvent('pointermove', opts(x, y)));
+      await sleep(30);
+    }
+    const el2 = document.elementFromPoint(p2.x, p2.y) || board;
+    el2.dispatchEvent(new PointerEvent('pointerup', opts(p2.x, p2.y)));
+    el2.dispatchEvent(new MouseEvent('mouseup', opts(p2.x, p2.y)));
+    el2.dispatchEvent(new MouseEvent('click', opts(p2.x, p2.y)));
+    return true;
+  }
+  async function handlePromo(promo) {
+    if (!promo) return;
+    const qBtn = document.querySelector('[data-test-element="promotion-piece-q"], .promotion-piece.q, [class*="promotion"] [class*="q"]');
+    if (qBtn) { qBtn.click(); await sleep(300); }
+  }
+  // Tự động di chuyển quân cờ: thử 3 cách, sau mỗi cách KIỂM TRA bàn đã đổi chưa mới tính là đi được.
   async function playMove(uci) {
     const board = getBoardEl();
     if (!board || !uci || uci.length < 4) return false;
     const from = uci.slice(0, 2), to = uci.slice(2, 4), promo = uci.slice(4, 5);
+    const read0 = readPieces();
+    const fenBefore = read0 ? buildFen(read0.pieces) : '';
+    const moved = async () => {
+      const r = readPieces();
+      return !!r && buildFen(r.pieces) !== fenBefore;
+    };
+    // Cách 1: bấm quân rồi bấm ô đích.
     clickSquare(board, from);
     await sleep(rand(120, 260));
     clickSquare(board, to);
-    await sleep(400);
-    if (promo) {
-      const qBtn = document.querySelector('[data-test-element="promotion-piece-q"], .promotion-piece.q, [class*="promotion"] [class*="q"]');
-      if (qBtn) { qBtn.click(); await sleep(300); }
+    await sleep(500);
+    if (await moved()) { await handlePromo(promo); return true; }
+    // Cách 2: kéo-thả quân từ ô đầu tới ô đích.
+    await dragMove(board, from, to);
+    await sleep(500);
+    if (await moved()) { await handlePromo(promo); return true; }
+    // Cách 3: bấm bằng tọa độ màn hình (dự phòng khi element không bấm được).
+    const p1 = squareCenterPoint(board, from), p2 = squareCenterPoint(board, to);
+    if (p1 && p2) {
+      fireClickAt(p1.x, p1.y);
+      await sleep(rand(150, 300));
+      fireClickAt(p2.x, p2.y);
+      await sleep(500);
     }
-    return true;
+    if (await moved()) { await handlePromo(promo); return true; }
+    log('playMove thất bại sau 3 cách:', uci);
+    return false;
   }
 
 
@@ -596,7 +642,7 @@
     sheet = document.createElement('div');
     sheet.id = 'xaiz-fa-sheet';
     sheet.innerHTML = `
-      <div style="font-weight:900;margin-bottom:6px">🤖 XAIZ FULL AUTO v10.1</div>
+      <div style="font-weight:900;margin-bottom:6px">🤖 XAIZ FULL AUTO v10.2</div>
       <button id="xaiz-fa-auto">🤖 TỰ ĐI: BẬT</button>
       <button id="xaiz-fa-arrow">👁 MŨI TÊN: BẬT</button>
       <button id="xaiz-fa-mode">MODE: VIP</button>
@@ -639,11 +685,12 @@
     q('#xaiz-fa-test').onclick = async () => {
       if (!lastBest) { setPill('Chưa có nước tốt nhất — đợi Bot tính xong đã'); return; }
       setPill('Bot đi thử: ' + lastBest);
-      await playMove(lastBest);
+      const ok = await playMove(lastBest);
+      setPill(ok ? ('✅ Đã đi thử ' + lastBest + ' — quân đã di chuyển') : ('⚠️ Chưa đi được ' + lastBest + ' — thử lại hoặc bấm tay 1 nước'));
     };
     q('#xaiz-fa-check').onclick = async () => {
       const res = q('#xaiz-fa-checkres');
-      const out = ['🔖 Bản v10.1.0 FULL AUTO — GitHub: VFBX/Ches-com-bot'];
+      const out = ['🔖 Bản v10.2.0 FULL AUTO — GitHub: VFBX/Ches-com-bot'];
       try { const t = xeAnalyse('rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1', 2); out.push(t && t.best ? ('✅ Engine local OK: ' + t.best) : '❌ Engine local không ra nước'); }
       catch (e) { out.push('❌ Engine local lỗi: ' + e.message); }
       const read = readPieces();
@@ -728,9 +775,13 @@
         await sleep(d);
         const reCheck2 = readPieces();
         if (reCheck2 && buildFen(reCheck2.pieces) === fen && lastBest === res.best) {
-          await playMove(res.best);
-          botMoves++;
-          setPill('🤖 Đã đi ' + res.best + ' — đợi đối thủ…');
+          const ok = await playMove(res.best);
+          if (ok) {
+            botMoves++;
+            setPill('🤖 Đã đi ' + res.best + ' ✅ — đợi đối thủ…');
+          } else {
+            setPill('⚠️ Chưa đi được ' + res.best + ' — bấm 🎯 ĐI 1 NƯỚC thử lại');
+          }
         }
       }
     } catch (e) {
@@ -748,7 +799,7 @@
     const oldS = document.getElementById('xaiz-fa-sheet'); if (oldS) oldS.remove();
     const oldA = document.getElementById('xaiz-arrow-svg'); if (oldA) oldA.remove();
     buildUI();
-    setPill('XAIZ FULL AUTO v10.1 — đang tự kiểm tra engine…');
+    setPill('XAIZ FULL AUTO v10.2 — đang tự kiểm tra engine…');
     try {
       const t = xeAnalyse('rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1', 2);
       if (t && t.best) setPill('✅ Engine OK (' + t.best + ') — vào ván Bot, Bot tự chơi hết');
@@ -759,7 +810,7 @@
     window.__xaizFaWatchdog = setInterval(() => {
       if (!document.getElementById('xaiz-fa-pill')) { buildUI(); setPill('Panel đã tự hồi phục'); lastFen = ''; }
     }, 5000);
-    log('XAIZ Chess FULL AUTO v10.1.0 đã tải. Mode:', mode, 'Auto:', autoMove, 'AutoNext:', autoNext);
+    log('XAIZ Chess FULL AUTO v10.2.0 đã tải. Mode:', mode, 'Auto:', autoMove, 'AutoNext:', autoNext);
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
   else init();
