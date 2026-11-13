@@ -1,12 +1,12 @@
-/* CHESS.COM BOT AI FULL AUTO v10.0 - BẢN CHẠY BẰNG CONSOLE (không cần Tampermonkey)
-   Tự động toàn bộ: tự nhận màu, tự phân tích, tự đi, tự mở ván mới.
-   Cách dùng: mở chess.com bằng Kiwi, vào ván Bot, mở Developers > JavaScript Console,
+/* CHESS.COM BOT AI FULL AUTO v10.1 - BẢN CHẠY BẰNG CONSOLE (không cần Tampermonkey)
+   Tự động toàn bộ, chạy cả ván Bot lẫn ván người.
+   Cách dùng: mở chess.com bằng Kiwi, vào ván (Bot hoặc người), mở Developers > JavaScript Console,
    dán TOÀN BỘ file này vào ô nhập, bấm nút chạy (▶). Mỗi lần tải lại trang thì dán lại 1 lần. */
 // ==UserScript==
-// @name         Chess.com Bot AI FULL AUTO v10 — XAIZ (Tự động toàn bộ)
+// @name         Chess.com Bot AI FULL AUTO v10.1 — XAIZ (Bot + Người)
 // @namespace    xaiz-chess-fullauto
-// @version      10.0.0
-// @description  Tự động toàn bộ: tự nhận màu Trắng/Đen, tự phân tích (engine local + Lichess + Stockfish), tự đi, tự mở ván mới. Chỉ 1 viên thuốc nhỏ + 1 bảng cài đặt gọn — đã bỏ hết tab, TOP 3, lịch sử, sách hiển thị, chọn màu mũi tên, đổi lượt tay.
+// @version      10.1.0
+// @description  Tự động toàn bộ, chạy cả ván Bot lẫn ván người: tự nhận màu Trắng/Đen, tự phân tích (engine local + Lichess + Stockfish), tự đi, tự mở ván mới. Chỉ 1 viên thuốc nhỏ + 1 bảng cài đặt gọn.
 // @author       XAIZ
 // @match        https://www.chess.com/*
 // @grant        GM_getValue
@@ -31,7 +31,7 @@
   let mode = __storeGet('xaiz_mode', 'VIP');
   let autoMove = __storeGet('xaiz_auto', true);       // TỰ ĐI mặc định BẬT
   let arrowVisible = __storeGet('xaiz_arrow', true);  // Mũi tên mặc định BẬT
-  let botOnly = __storeGet('xaiz_botonly', true);     // Chỉ ván Bot (chống ban)
+  let botOnly = __storeGet('xaiz_botonly', false);    // MẶC ĐỊNH TẮT: chạy cả ván Bot lẫn ván người (bật lại = chỉ ván Bot)
   let bulletMode = __storeGet('xaiz_bullet', false);  // Trận 1 phút: quét 300ms, chỉ engine local
   let autoNext = __storeGet('xaiz_autonext', true);   // Tự mở ván mới sau khi xong 1 ván
   const fenCache = new Map(); // thế cờ đã tính: gặp lại lấy ngay
@@ -600,16 +600,17 @@
     sheet = document.createElement('div');
     sheet.id = 'xaiz-fa-sheet';
     sheet.innerHTML = `
-      <div style="font-weight:900;margin-bottom:6px">🤖 XAIZ FULL AUTO v10</div>
+      <div style="font-weight:900;margin-bottom:6px">🤖 XAIZ FULL AUTO v10.1</div>
       <button id="xaiz-fa-auto">🤖 TỰ ĐI: BẬT</button>
       <button id="xaiz-fa-arrow">👁 MŨI TÊN: BẬT</button>
       <button id="xaiz-fa-mode">MODE: VIP</button>
       <button id="xaiz-fa-bullet">⚡ BULLET 1 PHÚT: TẮT</button>
+      <button id="xaiz-fa-botonly">🛡️ CHỈ VÁN BOT: TẮT</button>
       <button id="xaiz-fa-next">🔁 VÁN MỚI TỰ ĐỘNG: BẬT</button>
       <button id="xaiz-fa-test">🎯 ĐI 1 NƯỚC (thử)</button>
       <button id="xaiz-fa-check">✅ KIỂM TRA TOOL</button>
       <div class="check" id="xaiz-fa-checkres"></div>
-      <div class="note">Tự động toàn bộ: tự nhận màu, tự phân tích, tự đi, tự mở ván mới. Chỉ test với Bot / ván không xếp hạng, acc phụ — đánh rank bằng engine = khóa acc, không chống ban 100%.</div>
+      <div class="note">Chạy cả ván Bot lẫn ván người. ⚠️ Đánh với người thật bằng engine là vi phạm Fair Play của Chess.com — ván xếp hạng rất dễ bị khóa acc vĩnh viễn. Chỉ dùng acc phụ, ván không xếp hạng, đừng cày liên tục.</div>
       <div class="note">📦 GitHub: VFBX/Ches-com-bot — file ChessCom-Bot-AI-FullAuto.user.js (Tampermonkey) và ChessCom-Bot-AI-FullAuto-Console.js (dán Console).</div>`;
     document.body.appendChild(sheet);
     const q = (s) => sheet.querySelector(s);
@@ -622,6 +623,8 @@
       q('#xaiz-fa-mode').textContent = 'MODE: ' + mode;
       q('#xaiz-fa-bullet').textContent = bulletMode ? '⚡ BULLET 1 PHÚT: BẬT' : '⚡ BULLET 1 PHÚT: TẮT';
       q('#xaiz-fa-bullet').classList.toggle('off', !bulletMode);
+      q('#xaiz-fa-botonly').textContent = botOnly ? '🛡️ CHỈ VÁN BOT: BẬT' : '🛡️ CHỈ VÁN BOT: TẮT';
+      q('#xaiz-fa-botonly').classList.toggle('off', !botOnly);
       q('#xaiz-fa-next').textContent = autoNext ? '🔁 VÁN MỚI TỰ ĐỘNG: BẬT' : '🔁 VÁN MỚI TỰ ĐỘNG: TẮT';
       q('#xaiz-fa-next').classList.toggle('off', !autoNext);
     };
@@ -635,6 +638,7 @@
       upd(); restartInterval(); lastFen = '';
       setPill(bulletMode ? 'BULLET đã BẬT: chỉ engine local, quét 300ms — chỉ acc phụ, ván không xếp hạng!' : 'BULLET đã tắt');
     };
+    q('#xaiz-fa-botonly').onclick = () => { botOnly = !botOnly; __storeSet('xaiz_botonly', botOnly); upd(); lastFen = ''; setPill(botOnly ? 'Chỉ chạy ở ván Bot — vào Chơi với Bot' : 'Đã mở: chạy cả ván Bot lẫn ván người'); };
     q('#xaiz-fa-next').onclick = () => { autoNext = !autoNext; __storeSet('xaiz_autonext', autoNext); upd(); };
     q('#xaiz-fa-test').onclick = async () => {
       if (!lastBest) { setPill('Chưa có nước tốt nhất — đợi Bot tính xong đã'); return; }
@@ -643,7 +647,7 @@
     };
     q('#xaiz-fa-check').onclick = async () => {
       const res = q('#xaiz-fa-checkres');
-      const out = ['🔖 Bản v10.0.0 FULL AUTO — GitHub: VFBX/Ches-com-bot'];
+      const out = ['🔖 Bản v10.1.0 FULL AUTO — GitHub: VFBX/Ches-com-bot'];
       try { const t = xeAnalyse('rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1', 2); out.push(t && t.best ? ('✅ Engine local OK: ' + t.best) : '❌ Engine local không ra nước'); }
       catch (e) { out.push('❌ Engine local lỗi: ' + e.message); }
       const read = readPieces();
@@ -748,7 +752,7 @@
     const oldS = document.getElementById('xaiz-fa-sheet'); if (oldS) oldS.remove();
     const oldA = document.getElementById('xaiz-arrow-svg'); if (oldA) oldA.remove();
     buildUI();
-    setPill('XAIZ FULL AUTO v10 — đang tự kiểm tra engine…');
+    setPill('XAIZ FULL AUTO v10.1 — đang tự kiểm tra engine…');
     try {
       const t = xeAnalyse('rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1', 2);
       if (t && t.best) setPill('✅ Engine OK (' + t.best + ') — vào ván Bot, Bot tự chơi hết');
@@ -759,7 +763,7 @@
     window.__xaizFaWatchdog = setInterval(() => {
       if (!document.getElementById('xaiz-fa-pill')) { buildUI(); setPill('Panel đã tự hồi phục'); lastFen = ''; }
     }, 5000);
-    log('XAIZ Chess FULL AUTO v10.0.0 đã tải. Mode:', mode, 'Auto:', autoMove, 'AutoNext:', autoNext);
+    log('XAIZ Chess FULL AUTO v10.1.0 đã tải. Mode:', mode, 'Auto:', autoMove, 'AutoNext:', autoNext);
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
   else init();
